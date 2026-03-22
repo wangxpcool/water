@@ -1,0 +1,853 @@
+<script setup>
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+
+const HOME_PAGE = "home";
+const ACCOUNTS_PAGE = "accounts";
+
+const loading = ref(true);
+const saving = ref(false);
+const error = ref("");
+const formError = ref("");
+const currentPage = ref(resolvePageFromHash());
+
+const snapshots = ref([]);
+const accountDefinitions = ref([]);
+const accounts = ref([]);
+const expandedId = ref(null);
+const editingId = ref(null);
+const deletingId = ref(null);
+const editingAccountId = ref(null);
+const deletingAccountId = ref(null);
+
+const snapshotForm = reactive(createEmptySnapshotForm());
+const accountForm = reactive(createEmptyAccountForm());
+
+const latestSnapshot = computed(() => snapshots.value[0] ?? null);
+const totalAssets = computed(() => {
+  if (!latestSnapshot.value) {
+    return null;
+  }
+  return numberValue(latestSnapshot.value.cashTotal)
+    + numberValue(latestSnapshot.value.investmentTotal)
+    + numberValue(latestSnapshot.value.publicFunds);
+});
+const latestDebts = computed(() => numberValue(latestSnapshot.value?.liabilityTotal));
+const latestNetWorth = computed(() => latestSnapshot.value?.netWorth ?? null);
+
+const isSnapshotCreating = computed(() => editingId.value === "new");
+const isSnapshotEditing = computed(() => editingId.value !== null);
+const snapshotSubmitLabel = computed(() => (isSnapshotCreating.value ? "新增快照" : "保存修改"));
+
+const isAccountCreating = computed(() => editingAccountId.value === "new");
+const isAccountEditing = computed(() => editingAccountId.value !== null);
+const accountSubmitLabel = computed(() => (isAccountCreating.value ? "新增账户" : "保存账户"));
+
+onMounted(async () => {
+  window.addEventListener("hashchange", syncPageFromHash);
+  await loadAll();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("hashchange", syncPageFromHash);
+});
+
+async function loadAll() {
+  loading.value = true;
+  error.value = "";
+
+  try {
+    const [snapshotsResponse, enabledAccountsResponse, accountsResponse] = await Promise.all([
+      fetch("/api/snapshots"),
+      fetch("/api/snapshots/accounts"),
+      fetch("/api/accounts")
+    ]);
+
+    if (!snapshotsResponse.ok) {
+      throw new Error(`加载快照失败: ${snapshotsResponse.status}`);
+    }
+    if (!enabledAccountsResponse.ok) {
+      throw new Error(`加载快照账户失败: ${enabledAccountsResponse.status}`);
+    }
+    if (!accountsResponse.ok) {
+      throw new Error(`加载账户失败: ${accountsResponse.status}`);
+    }
+
+    snapshots.value = await snapshotsResponse.json();
+    accountDefinitions.value = await enabledAccountsResponse.json();
+    accounts.value = await accountsResponse.json();
+
+    if (snapshots.value.length > 0 && expandedId.value === null) {
+      expandedId.value = snapshots.value[0].id;
+    }
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : "加载失败";
+  } finally {
+    loading.value = false;
+  }
+}
+
+function resolvePageFromHash() {
+  return window.location.hash === "#/accounts" ? ACCOUNTS_PAGE : HOME_PAGE;
+}
+
+function syncPageFromHash() {
+  currentPage.value = resolvePageFromHash();
+}
+
+function navigateTo(page) {
+  currentPage.value = page;
+  window.location.hash = page === ACCOUNTS_PAGE ? "/accounts" : "/";
+  formError.value = "";
+}
+
+function createEmptySnapshotForm() {
+  return {
+    snapshotDate: "",
+    income: "",
+    fixedExpense: "",
+    cashTotal: "",
+    investmentTotal: "",
+    liabilityTotal: "",
+    grossAccountValue: "",
+    profitLoss: "",
+    netWorth: "",
+    publicFunds: "",
+    extraAmount: "",
+    balance: "",
+    note: "",
+    remark: "",
+    details: []
+  };
+}
+
+function createEmptyAccountForm() {
+  return {
+    accountCode: "",
+    accountName: "",
+    accountType: "EWALLET",
+    balanceDirection: "ASSET",
+    currencyCode: "CNY",
+    institutionName: "",
+    ownerName: "",
+    remark: "",
+    sortOrder: "",
+    enabled: true
+  };
+}
+
+function resetSnapshotForm(next) {
+  Object.assign(snapshotForm, createEmptySnapshotForm(), next);
+}
+
+function resetAccountForm(next) {
+  Object.assign(accountForm, createEmptyAccountForm(), next);
+}
+
+function toFieldValue(value) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function parseNullableNumber(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isNaN(numeric) ? null : numeric;
+}
+
+function numberValue(value) {
+  const numeric = Number(value);
+  return Number.isNaN(numeric) ? 0 : numeric;
+}
+
+function accountDetailDraft(snapshot, account) {
+  const existing = snapshot?.details?.find((detail) => detail.accountCode === account.accountCode);
+  return {
+    accountCode: account.accountCode,
+    accountName: account.accountName,
+    accountType: account.accountType,
+    balanceDirection: account.balanceDirection,
+    currencyCode: existing?.currencyCode ?? account.currencyCode,
+    amount: toFieldValue(existing?.amount)
+  };
+}
+
+function openCreateSnapshotForm() {
+  editingId.value = "new";
+  formError.value = "";
+  resetSnapshotForm({
+    details: accountDefinitions.value.map((account) => accountDetailDraft(null, account))
+  });
+}
+
+function openEditSnapshotForm(snapshot) {
+  editingId.value = snapshot.id;
+  expandedId.value = snapshot.id;
+  formError.value = "";
+  resetSnapshotForm({
+    snapshotDate: snapshot.snapshotDate ?? "",
+    income: toFieldValue(snapshot.income),
+    fixedExpense: toFieldValue(snapshot.fixedExpense),
+    cashTotal: toFieldValue(snapshot.cashTotal),
+    investmentTotal: toFieldValue(snapshot.investmentTotal),
+    liabilityTotal: toFieldValue(snapshot.liabilityTotal),
+    grossAccountValue: toFieldValue(snapshot.grossAccountValue),
+    profitLoss: toFieldValue(snapshot.profitLoss),
+    netWorth: toFieldValue(snapshot.netWorth),
+    publicFunds: toFieldValue(snapshot.publicFunds),
+    extraAmount: toFieldValue(snapshot.extraAmount),
+    balance: toFieldValue(snapshot.balance),
+    note: snapshot.note ?? "",
+    remark: snapshot.remark ?? "",
+    details: accountDefinitions.value.map((account) => accountDetailDraft(snapshot, account))
+  });
+}
+
+function cancelSnapshotEditing() {
+  editingId.value = null;
+  formError.value = "";
+  resetSnapshotForm({ details: [] });
+}
+
+function buildSnapshotPayload() {
+  return {
+    snapshotDate: snapshotForm.snapshotDate,
+    income: parseNullableNumber(snapshotForm.income),
+    fixedExpense: parseNullableNumber(snapshotForm.fixedExpense),
+    cashTotal: parseNullableNumber(snapshotForm.cashTotal),
+    investmentTotal: parseNullableNumber(snapshotForm.investmentTotal),
+    liabilityTotal: parseNullableNumber(snapshotForm.liabilityTotal),
+    grossAccountValue: parseNullableNumber(snapshotForm.grossAccountValue),
+    profitLoss: parseNullableNumber(snapshotForm.profitLoss),
+    netWorth: parseNullableNumber(snapshotForm.netWorth),
+    publicFunds: parseNullableNumber(snapshotForm.publicFunds),
+    extraAmount: parseNullableNumber(snapshotForm.extraAmount),
+    balance: parseNullableNumber(snapshotForm.balance),
+    note: snapshotForm.note.trim() || null,
+    remark: snapshotForm.remark.trim() || null,
+    details: snapshotForm.details.map((detail) => ({
+      accountCode: detail.accountCode,
+      amount: parseNullableNumber(detail.amount),
+      currencyCode: detail.currencyCode
+    }))
+  };
+}
+
+async function submitSnapshotForm() {
+  formError.value = "";
+  if (!snapshotForm.snapshotDate) {
+    formError.value = "快照日期不能为空";
+    return;
+  }
+
+  saving.value = true;
+  try {
+    const method = isSnapshotCreating.value ? "POST" : "PUT";
+    const url = isSnapshotCreating.value ? "/api/snapshots" : `/api/snapshots/${editingId.value}`;
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildSnapshotPayload())
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `保存失败: ${response.status}`);
+    }
+
+    const snapshot = await response.json();
+    await loadAll();
+    expandedId.value = snapshot.id;
+    cancelSnapshotEditing();
+  } catch (err) {
+    formError.value = err instanceof Error ? err.message : "保存失败";
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function deleteSnapshot(id) {
+  const snapshot = snapshots.value.find((item) => item.id === id);
+  if (!snapshot) {
+    return;
+  }
+
+  if (!window.confirm(`确认删除 ${snapshot.snapshotDate} 这条快照吗？`)) {
+    return;
+  }
+
+  deletingId.value = id;
+  formError.value = "";
+  try {
+    const response = await fetch(`/api/snapshots/${id}`, { method: "DELETE" });
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `删除失败: ${response.status}`);
+    }
+
+    if (editingId.value === id) {
+      cancelSnapshotEditing();
+    }
+
+    await loadAll();
+    if (expandedId.value === id) {
+      expandedId.value = snapshots.value[0]?.id ?? null;
+    }
+  } catch (err) {
+    formError.value = err instanceof Error ? err.message : "删除失败";
+  } finally {
+    deletingId.value = null;
+  }
+}
+
+function openCreateAccountForm() {
+  editingAccountId.value = "new";
+  formError.value = "";
+  resetAccountForm({});
+}
+
+function openEditAccountForm(account) {
+  editingAccountId.value = account.id;
+  formError.value = "";
+  resetAccountForm({
+    accountCode: account.accountCode ?? "",
+    accountName: account.accountName ?? "",
+    accountType: account.accountType ?? "EWALLET",
+    balanceDirection: account.balanceDirection ?? "ASSET",
+    currencyCode: account.currencyCode ?? "CNY",
+    institutionName: account.institutionName ?? "",
+    ownerName: account.ownerName ?? "",
+    remark: account.remark ?? "",
+    sortOrder: toFieldValue(account.sortOrder),
+    enabled: Boolean(account.enabled)
+  });
+}
+
+function cancelAccountEditing() {
+  editingAccountId.value = null;
+  formError.value = "";
+  resetAccountForm({});
+}
+
+function buildAccountPayload() {
+  return {
+    accountCode: accountForm.accountCode.trim(),
+    accountName: accountForm.accountName.trim(),
+    accountType: accountForm.accountType.trim(),
+    balanceDirection: accountForm.balanceDirection.trim(),
+    currencyCode: accountForm.currencyCode.trim(),
+    institutionName: accountForm.institutionName.trim() || null,
+    ownerName: accountForm.ownerName.trim() || null,
+    remark: accountForm.remark.trim() || null,
+    sortOrder: Number(accountForm.sortOrder || 0),
+    enabled: Boolean(accountForm.enabled)
+  };
+}
+
+async function submitAccountForm() {
+  formError.value = "";
+  if (!accountForm.accountCode.trim() || !accountForm.accountName.trim()) {
+    formError.value = "账户编码和账户名称不能为空";
+    return;
+  }
+
+  saving.value = true;
+  try {
+    const method = isAccountCreating.value ? "POST" : "PUT";
+    const url = isAccountCreating.value ? "/api/accounts" : `/api/accounts/${editingAccountId.value}`;
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildAccountPayload())
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `保存账户失败: ${response.status}`);
+    }
+
+    await loadAll();
+    cancelAccountEditing();
+  } catch (err) {
+    formError.value = err instanceof Error ? err.message : "保存账户失败";
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function deleteAccount(id) {
+  const account = accounts.value.find((item) => item.id === id);
+  if (!account) {
+    return;
+  }
+
+  if (!window.confirm(`确认删除账户 ${account.accountName} (${account.accountCode}) 吗？`)) {
+    return;
+  }
+
+  deletingAccountId.value = id;
+  formError.value = "";
+  try {
+    const response = await fetch(`/api/accounts/${id}`, { method: "DELETE" });
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `删除账户失败: ${response.status}`);
+    }
+
+    if (editingAccountId.value === id) {
+      cancelAccountEditing();
+    }
+
+    await loadAll();
+  } catch (err) {
+    formError.value = err instanceof Error ? err.message : "删除账户失败";
+  } finally {
+    deletingAccountId.value = null;
+  }
+}
+
+function toggleSnapshot(id) {
+  expandedId.value = expandedId.value === id ? null : id;
+}
+
+function formatAmount(value, currencyCode = "CNY") {
+  if (value === null || value === undefined || value === "") {
+    return "--";
+  }
+
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) {
+    return String(value);
+  }
+
+  const locale = currencyCode === "USD" ? "en-US" : "zh-CN";
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: currencyCode,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  }).format(numeric);
+}
+
+function detailTone(detail) {
+  if (detail.balanceDirection === "DEBT") {
+    return "debt";
+  }
+  if (detail.accountType === "INVESTMENT") {
+    return "investment";
+  }
+  return "asset";
+}
+
+function summaryTone(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  return Number(value) < 0 ? "negative" : "positive";
+}
+
+function formTone(account) {
+  if (account.balanceDirection === "DEBT") {
+    return "debt";
+  }
+  if (account.accountType === "INVESTMENT") {
+    return "investment";
+  }
+  return "asset";
+}
+</script>
+
+<template>
+  <div class="page-shell">
+    <main class="layout">
+      <section class="hero-card">
+        <div class="hero-top">
+          <div>
+            <p class="eyebrow">Personal Asset Snapshot</p>
+            <div class="hero-heading">
+              <h1>{{ currentPage === HOME_PAGE ? "资产快照" : "账户管理" }}</h1>
+              <p v-if="currentPage === HOME_PAGE">维护每日资产快照，查看汇总数据和账户明细。</p>
+              <p v-else>单独管理账户基础信息，首页只保留快照相关内容。</p>
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button
+              class="ghost-button"
+              :class="{ 'active-tab': currentPage === HOME_PAGE }"
+              type="button"
+              @click="navigateTo(HOME_PAGE)"
+            >
+              首页
+            </button>
+            <button
+              class="ghost-button"
+              :class="{ 'active-tab': currentPage === ACCOUNTS_PAGE }"
+              type="button"
+              @click="navigateTo(ACCOUNTS_PAGE)"
+            >
+              账户页
+            </button>
+          </div>
+        </div>
+
+        <div v-if="currentPage === HOME_PAGE && latestSnapshot" class="hero-grid">
+          <article class="metric-card">
+            <span>最新日期</span>
+            <strong>{{ latestSnapshot.snapshotDate }}</strong>
+          </article>
+          <article class="metric-card">
+            <span>总资产</span>
+            <strong>{{ formatAmount(totalAssets) }}</strong>
+          </article>
+          <article class="metric-card">
+            <span>总负债</span>
+            <strong :class="summaryTone(latestDebts)">{{ formatAmount(latestDebts) }}</strong>
+          </article>
+          <article class="metric-card">
+            <span>净资产</span>
+            <strong :class="summaryTone(latestNetWorth)">{{ formatAmount(latestNetWorth) }}</strong>
+          </article>
+        </div>
+      </section>
+
+      <section v-if="formError" class="content-card">
+        <div class="state-panel error">{{ formError }}</div>
+      </section>
+
+      <template v-if="currentPage === HOME_PAGE">
+        <section v-if="isSnapshotEditing" class="content-card form-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Editor</p>
+              <h2>{{ isSnapshotCreating ? "新增快照" : "编辑快照" }}</h2>
+            </div>
+            <div class="button-row">
+              <button class="ghost-button" type="button" @click="cancelSnapshotEditing">取消</button>
+              <button class="primary-button" type="button" :disabled="saving" @click="submitSnapshotForm">
+                {{ saving ? "保存中..." : snapshotSubmitLabel }}
+              </button>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span>快照日期</span>
+              <input v-model="snapshotForm.snapshotDate" type="date" />
+            </label>
+            <label class="field">
+              <span>收入</span>
+              <input v-model="snapshotForm.income" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>固定支出</span>
+              <input v-model="snapshotForm.fixedExpense" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>现金总额</span>
+              <input v-model="snapshotForm.cashTotal" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>投资总额</span>
+              <input v-model="snapshotForm.investmentTotal" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>负债总额</span>
+              <input v-model="snapshotForm.liabilityTotal" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>账户总值</span>
+              <input v-model="snapshotForm.grossAccountValue" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>盈亏</span>
+              <input v-model="snapshotForm.profitLoss" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>净资产</span>
+              <input v-model="snapshotForm.netWorth" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>公积金 / 公共资金</span>
+              <input v-model="snapshotForm.publicFunds" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>额外金额</span>
+              <input v-model="snapshotForm.extraAmount" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>余额</span>
+              <input v-model="snapshotForm.balance" type="number" step="0.01" />
+            </label>
+            <label class="field field-wide">
+              <span>备注</span>
+              <textarea v-model="snapshotForm.note" rows="3" />
+            </label>
+            <label class="field field-wide">
+              <span>补充说明</span>
+              <textarea v-model="snapshotForm.remark" rows="3" />
+            </label>
+          </div>
+
+          <div class="detail-block">
+            <div class="detail-head">
+              <h3>账户明细</h3>
+              <span>{{ snapshotForm.details.length }} 个账户</span>
+            </div>
+
+            <div class="editor-detail-grid">
+              <article
+                v-for="detail in snapshotForm.details"
+                :key="detail.accountCode"
+                class="editor-detail-card"
+                :data-tone="formTone(detail)"
+              >
+                <div class="detail-top">
+                  <strong>{{ detail.accountName }}</strong>
+                  <span>{{ detail.accountCode }}</span>
+                </div>
+
+                <div class="detail-meta">
+                  <span>{{ detail.accountType }}</span>
+                  <span>{{ detail.currencyCode }}</span>
+                </div>
+
+                <label class="field compact-field">
+                  <span>金额</span>
+                  <input v-model="detail.amount" type="number" step="0.01" />
+                </label>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">All Snapshots</p>
+              <h2>全部快照</h2>
+            </div>
+            <span class="count-chip">{{ snapshots.length }} 条</span>
+          </div>
+
+          <div v-if="loading" class="state-panel">正在加载数据...</div>
+          <div v-else-if="error" class="state-panel error">{{ error }}</div>
+          <div v-else-if="snapshots.length === 0" class="state-panel">暂无数据</div>
+
+          <div v-else class="snapshot-list">
+            <article v-for="snapshot in snapshots" :key="snapshot.id" class="snapshot-card">
+              <button class="snapshot-summary" type="button" @click="toggleSnapshot(snapshot.id)">
+                <div class="summary-left">
+                  <strong>{{ snapshot.snapshotDate }}</strong>
+                  <span>{{ snapshot.note || snapshot.remark || "无备注" }}</span>
+                </div>
+                <div class="summary-right">
+                  <span>净资产 {{ formatAmount(snapshot.netWorth) }}</span>
+                  <span>现金 {{ formatAmount(snapshot.cashTotal) }}</span>
+                  <span>投资 {{ formatAmount(snapshot.investmentTotal) }}</span>
+                </div>
+              </button>
+
+              <div v-if="expandedId === snapshot.id" class="snapshot-body">
+                <div class="snapshot-toolbar">
+                  <div class="button-row">
+                    <button class="ghost-button" type="button" @click="openEditSnapshotForm(snapshot)">编辑</button>
+                    <button
+                      class="danger-button"
+                      type="button"
+                      :disabled="deletingId === snapshot.id"
+                      @click="deleteSnapshot(snapshot.id)"
+                    >
+                      {{ deletingId === snapshot.id ? "删除中..." : "删除" }}
+                    </button>
+                  </div>
+                </div>
+
+                <div class="snapshot-stats">
+                  <div>
+                    <label>收入</label>
+                    <span>{{ formatAmount(snapshot.income) }}</span>
+                  </div>
+                  <div>
+                    <label>固定支出</label>
+                    <span>{{ formatAmount(snapshot.fixedExpense) }}</span>
+                  </div>
+                  <div>
+                    <label>负债</label>
+                    <span>{{ formatAmount(snapshot.liabilityTotal) }}</span>
+                  </div>
+                  <div>
+                    <label>盈亏</label>
+                    <span :class="summaryTone(snapshot.profitLoss)">{{ formatAmount(snapshot.profitLoss) }}</span>
+                  </div>
+                  <div>
+                    <label>公积金 / 公共资金</label>
+                    <span>{{ formatAmount(snapshot.publicFunds) }}</span>
+                  </div>
+                  <div>
+                    <label>余额</label>
+                    <span>{{ formatAmount(snapshot.balance) }}</span>
+                  </div>
+                </div>
+
+                <div class="detail-block">
+                  <div class="detail-head">
+                    <h3>账户明细</h3>
+                    <span>{{ snapshot.details.length }} 项</span>
+                  </div>
+
+                  <div class="detail-grid">
+                    <article
+                      v-for="detail in snapshot.details"
+                      :key="`${snapshot.id}-${detail.accountCode}`"
+                      class="detail-card"
+                      :data-tone="detailTone(detail)"
+                    >
+                      <div class="detail-top">
+                        <strong>{{ detail.accountName }}</strong>
+                        <span>{{ detail.accountType }}</span>
+                      </div>
+                      <div class="detail-amount">
+                        {{ formatAmount(detail.amount, detail.currencyCode) }}
+                      </div>
+                      <div class="detail-meta">
+                        <span>{{ detail.balanceDirection }}</span>
+                        <span>{{ detail.currencyCode }}</span>
+                      </div>
+                      <p>{{ detail.remark || "无备注" }}</p>
+                    </article>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
+      </template>
+
+      <template v-else>
+        <section v-if="isAccountEditing" class="content-card form-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Account Editor</p>
+              <h2>{{ isAccountCreating ? "新增账户" : "编辑账户" }}</h2>
+            </div>
+            <div class="button-row">
+              <button class="ghost-button" type="button" @click="cancelAccountEditing">取消</button>
+              <button class="primary-button" type="button" :disabled="saving" @click="submitAccountForm">
+                {{ saving ? "保存中..." : accountSubmitLabel }}
+              </button>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span>账户编码</span>
+              <input v-model="accountForm.accountCode" type="text" />
+            </label>
+            <label class="field">
+              <span>账户名称</span>
+              <input v-model="accountForm.accountName" type="text" />
+            </label>
+            <label class="field">
+              <span>账户类型</span>
+              <input v-model="accountForm.accountType" type="text" />
+            </label>
+            <label class="field">
+              <span>方向</span>
+              <select v-model="accountForm.balanceDirection">
+                <option value="ASSET">ASSET</option>
+                <option value="DEBT">DEBT</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>币种</span>
+              <select v-model="accountForm.currencyCode">
+                <option value="CNY">CNY</option>
+                <option value="USD">USD</option>
+                <option value="HKD">HKD</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>排序</span>
+              <input v-model="accountForm.sortOrder" type="number" step="1" />
+            </label>
+            <label class="field">
+              <span>机构</span>
+              <input v-model="accountForm.institutionName" type="text" />
+            </label>
+            <label class="field">
+              <span>归属人</span>
+              <input v-model="accountForm.ownerName" type="text" />
+            </label>
+            <label class="field field-wide">
+              <span>备注</span>
+              <input v-model="accountForm.remark" type="text" />
+            </label>
+            <label class="field switch-field">
+              <span>启用</span>
+              <input v-model="accountForm.enabled" type="checkbox" />
+            </label>
+          </div>
+        </section>
+
+        <section class="content-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">All Accounts</p>
+              <h2>账户列表</h2>
+            </div>
+            <span class="count-chip">{{ accounts.length }} 个</span>
+          </div>
+
+          <div v-if="loading" class="state-panel">正在加载账户...</div>
+          <div v-else-if="error" class="state-panel error">{{ error }}</div>
+          <div v-else class="account-table-wrap">
+            <table class="account-table">
+              <thead>
+                <tr>
+                  <th>编码</th>
+                  <th>名称</th>
+                  <th>类型</th>
+                  <th>方向</th>
+                  <th>币种</th>
+                  <th>排序</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="account in accounts" :key="account.id">
+                  <td>{{ account.accountCode }}</td>
+                  <td>
+                    <strong>{{ account.accountName }}</strong>
+                    <div class="table-sub">{{ account.institutionName || account.remark || "--" }}</div>
+                  </td>
+                  <td>{{ account.accountType }}</td>
+                  <td>{{ account.balanceDirection }}</td>
+                  <td>{{ account.currencyCode }}</td>
+                  <td>{{ account.sortOrder }}</td>
+                  <td>{{ account.enabled ? "启用" : "停用" }}</td>
+                  <td>
+                    <div class="button-row">
+                      <button class="ghost-button small-button" type="button" @click="openEditAccountForm(account)">
+                        编辑
+                      </button>
+                      <button
+                        class="danger-button small-button"
+                        type="button"
+                        :disabled="deletingAccountId === account.id"
+                        @click="deleteAccount(account.id)"
+                      >
+                        {{ deletingAccountId === account.id ? "删除中..." : "删除" }}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </template>
+    </main>
+  </div>
+</template>

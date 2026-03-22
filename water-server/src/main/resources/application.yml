@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: water-server
+  datasource:
+    url: jdbc:sqlite:C:/Users/wangx/Desktop/peisonal/water/water.db
+    driver-class-name: org.sqlite.JDBC
+  sql:
+    init:
+      mode: always
+
+server:
+  port: 8080

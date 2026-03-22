@@ -1,0 +1,4 @@
+com\water\server\snapshot\WaterCsvImportServiceTests.class
+com\water\server\WaterServerApplicationTests.class
+com\water\server\snapshot\AssetAccountCommandServiceTests.class
+com\water\server\snapshot\AssetSnapshotCommandServiceTests.class
