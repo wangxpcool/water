@@ -539,3 +539,28 @@ label {
     grid-column: span 1;
   }
 }
+
+.chart-card {
+  margin-top: 20px;
+  padding: 24px;
+}
+
+.chart-empty {
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.chart-wrapper {
+  position: relative;
+  height: 280px;
+}
+
+@media (max-width: 640px) {
+  .chart-wrapper {
+    height: 200px;
+  }
+}
