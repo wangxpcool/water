@@ -18,6 +18,8 @@ const editingId = ref(null);
 const deletingId = ref(null);
 const editingAccountId = ref(null);
 const deletingAccountId = ref(null);
+const netWorthChartRef = ref(null);
+let netWorthChartInstance = null;
 
 const snapshotForm = reactive(createEmptySnapshotForm());
 const accountForm = reactive(createEmptyAccountForm());
@@ -42,6 +44,32 @@ const isAccountCreating = computed(() => editingAccountId.value === "new");
 const isAccountEditing = computed(() => editingAccountId.value !== null);
 const accountSubmitLabel = computed(() => (isAccountCreating.value ? "新增账户" : "保存账户"));
 
+const chartSnapshots = computed(() => {
+  if (!snapshots.value || snapshots.value.length < 2) {
+    return null;
+  }
+  return snapshots.value
+    .slice()
+    .sort((a, b) => new Date(a.snapshotDate) - new Date(b.snapshotDate));
+});
+
+const chartData = computed(() => {
+  if (!chartSnapshots.value) {
+    return null;
+  }
+  return {
+    labels: chartSnapshots.value.map((s) => s.snapshotDate),
+    netWorth: chartSnapshots.value.map((s) => (s.netWorth !== null ? Number(s.netWorth) : null)),
+    totalAssets: chartSnapshots.value.map(
+      (s) =>
+        numberValue(s.cashTotal) +
+        numberValue(s.investmentTotal) +
+        numberValue(s.publicFunds)
+    ),
+    totalDebt: chartSnapshots.value.map((s) => (s.liabilityTotal !== null ? Number(s.liabilityTotal) : null))
+  };
+});
+
 onMounted(async () => {
   window.addEventListener("hashchange", syncPageFromHash);
   await loadAll();
@@ -49,7 +77,138 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("hashchange", syncPageFromHash);
+  if (netWorthChartInstance) {
+    netWorthChartInstance.destroy();
+    netWorthChartInstance = null;
+  }
 });
+
+function initNetWorthChart() {
+  if (netWorthChartInstance) {
+    netWorthChartInstance.destroy();
+    netWorthChartInstance = null;
+  }
+
+  if (!chartData.value) {
+    return;
+  }
+
+  const ctx = netWorthChartRef.value.getContext("2d");
+  netWorthChartInstance = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: chartData.value.labels,
+      datasets: [
+        {
+          label: "净资产",
+          data: chartData.value.netWorth,
+          borderColor: "#176a58",
+          backgroundColor: "rgba(23, 106, 88, 0.1)",
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4,
+          pointHoverRadius: 6
+        },
+        {
+          label: "总资产",
+          data: chartData.value.totalAssets,
+          borderColor: "#b05f2f",
+          backgroundColor: "rgba(176, 95, 47, 0.1)",
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4,
+          pointHoverRadius: 6
+        },
+        {
+          label: "总负债",
+          data: chartData.value.totalDebt,
+          borderColor: "#a33d31",
+          backgroundColor: "rgba(163, 61, 49, 0.1)",
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4,
+          pointHoverRadius: 6
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: {
+        mode: "index",
+        intersect: false
+      },
+      plugins: {
+        legend: {
+          position: "top",
+          align: "end",
+          labels: {
+            usePointStyle: true,
+            padding: 20,
+            font: {
+              family: "'Manrope', 'Noto Sans SC', sans-serif",
+              size: 12
+            }
+          }
+        },
+        tooltip: {
+          backgroundColor: "rgba(255, 255, 255, 0.95)",
+          titleColor: "#102127",
+          bodyColor: "#587078",
+          borderColor: "rgba(16, 33, 39, 0.08)",
+          borderWidth: 1,
+          padding: 12,
+          titleFont: {
+            family: "'Manrope', 'Noto Sans SC', sans-serif",
+            weight: "bold"
+          },
+          bodyFont: {
+            family: "'Manrope', 'Noto Sans SC', sans-serif"
+          },
+          callbacks: {
+            label: function (context) {
+              const value = context.parsed.y;
+              if (value === null) return null;
+              return context.dataset.label + ": " + formatAmount(value);
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: {
+            display: false
+          },
+          ticks: {
+            font: {
+              family: "'Manrope', 'Noto Sans SC', sans-serif",
+              size: 11
+            },
+            color: "#587078"
+          }
+        },
+        y: {
+          grid: {
+            color: "rgba(16, 33, 39, 0.08)"
+          },
+          ticks: {
+            font: {
+              family: "'Manrope', 'Noto Sans SC', sans-serif",
+              size: 11
+            },
+            color: "#587078",
+            callback: function (value) {
+              if (value >= 10000) {
+                return (value / 10000).toFixed(1) + "万";
+              }
+              return value;
+            }
+          }
+        }
+      }
+    }
+  });
+}
 
 async function loadAll() {
   loading.value = true;
@@ -82,6 +241,9 @@ async function loadAll() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : "加载失败";
   } finally {
+    if (currentPage.value === HOME_PAGE) {
+      initNetWorthChart();
+    }
     loading.value = false;
   }
 }
@@ -510,6 +672,20 @@ function formTone(account) {
           </article>
         </div>
       </section>
+
+      <div v-if="currentPage === HOME_PAGE" class="chart-card content-card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Trend</p>
+            <h2>净资产趋势</h2>
+          </div>
+        </div>
+
+        <div v-if="!chartData" class="chart-empty">暂无趋势数据</div>
+        <div v-else class="chart-wrapper">
+          <canvas ref="netWorthChartRef"></canvas>
+        </div>
+      </div>
 
       <section v-if="formError" class="content-card">
         <div class="state-panel error">{{ formError }}</div>
