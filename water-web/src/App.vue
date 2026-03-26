@@ -858,17 +858,12 @@ function formTone(account) {
           <div v-else-if="snapshots.length === 0" class="state-panel">暂无数据</div>
 
           <div v-else class="snapshot-list">
-            <article v-for="snapshot in snapshots" :key="snapshot.id" class="snapshot-card">
-              <button class="snapshot-summary" type="button" @click="toggleSnapshot(snapshot.id)">
-                <div class="summary-left">
-                  <strong>{{ snapshot.snapshotDate }}</strong>
-                  <span>{{ snapshot.note || snapshot.remark || "无备注" }}</span>
-                </div>
-                <div class="summary-right">
-                  <span>净资产 {{ formatAmount(snapshot.netWorth) }}</span>
-                  <span>现金 {{ formatAmount(snapshot.cashTotal) }}</span>
-                  <span>投资 {{ formatAmount(snapshot.investmentTotal) }}</span>
-                </div>
+            <article v-for="snapshot in snapshots" :key="snapshot.id" class="snapshot-item">
+              <button class="snapshot-row" type="button" @click="toggleSnapshot(snapshot.id)">
+                <span class="snapshot-date">{{ snapshot.snapshotDate }}</span>
+                <span class="snapshot-networth" :class="summaryTone(snapshot.netWorth)">
+                  {{ formatAmount(snapshot.netWorth) }}
+                </span>
               </button>
 
               <div v-if="expandedId === snapshot.id" class="snapshot-body">
@@ -886,37 +881,37 @@ function formTone(account) {
                   </div>
                 </div>
 
-                <div class="snapshot-stats">
-                  <div>
-                    <label>收入</label>
-                    <span>{{ formatAmount(snapshot.income) }}</span>
+                <div class="snapshot-stats-grid">
+                  <div class="stat-card">
+                    <span class="stat-label">收入</span>
+                    <span class="stat-value positive">{{ formatAmount(snapshot.income) }}</span>
                   </div>
-                  <div>
-                    <label>固定支出</label>
-                    <span>{{ formatAmount(snapshot.fixedExpense) }}</span>
+                  <div class="stat-card">
+                    <span class="stat-label">固定支出</span>
+                    <span class="stat-value negative">{{ formatAmount(snapshot.fixedExpense) }}</span>
                   </div>
-                  <div>
-                    <label>负债</label>
-                    <span>{{ formatAmount(snapshot.liabilityTotal) }}</span>
+                  <div class="stat-card">
+                    <span class="stat-label">负债总额</span>
+                    <span class="stat-value negative">{{ formatAmount(snapshot.liabilityTotal) }}</span>
                   </div>
-                  <div>
-                    <label>盈亏</label>
-                    <span :class="summaryTone(snapshot.profitLoss)">{{ formatAmount(snapshot.profitLoss) }}</span>
+                  <div class="stat-card">
+                    <span class="stat-label">盈亏</span>
+                    <span class="stat-value" :class="summaryTone(snapshot.profitLoss)">{{ formatAmount(snapshot.profitLoss) }}</span>
                   </div>
-                  <div>
-                    <label>公积金 / 公共资金</label>
-                    <span>{{ formatAmount(snapshot.publicFunds) }}</span>
+                  <div class="stat-card">
+                    <span class="stat-label">公积金</span>
+                    <span class="stat-value">{{ formatAmount(snapshot.publicFunds) }}</span>
                   </div>
-                  <div>
-                    <label>余额</label>
-                    <span>{{ formatAmount(snapshot.balance) }}</span>
+                  <div class="stat-card">
+                    <span class="stat-label">余额</span>
+                    <span class="stat-value">{{ formatAmount(snapshot.balance) }}</span>
                   </div>
                 </div>
 
                 <div class="detail-block">
                   <div class="detail-head">
                     <h3>账户明细</h3>
-                    <span>{{ snapshot.details.length }} 项</span>
+                    <span>{{ snapshot.details.length }} 个账户</span>
                   </div>
 
                   <div class="detail-grid">
@@ -928,16 +923,14 @@ function formTone(account) {
                     >
                       <div class="detail-top">
                         <strong>{{ detail.accountName }}</strong>
-                        <span>{{ detail.accountType }}</span>
-                      </div>
-                      <div class="detail-amount">
-                        {{ formatAmount(detail.amount, detail.currencyCode) }}
+                        <span class="detail-balance" :class="detail.balanceDirection === 'DEBT' ? 'debt' : 'asset'">
+                          {{ formatAmount(detail.amount, detail.currencyCode) }}
+                        </span>
                       </div>
                       <div class="detail-meta">
-                        <span>{{ detail.balanceDirection }}</span>
+                        <span>{{ detail.accountType }}</span>
                         <span>{{ detail.currencyCode }}</span>
                       </div>
-                      <p>{{ detail.remark || "无备注" }}</p>
                     </article>
                   </div>
                 </div>
