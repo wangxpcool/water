@@ -287,6 +287,133 @@ label {
   padding: 18px 0 22px;
 }
 
+.snapshot-detail {
+  padding: 0 20px 20px;
+  border-top: 1px solid rgba(16, 33, 39, 0.06);
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+}
+
+.detail-date {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.detail-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.detail-summary {
+  padding: 12px 0 16px;
+  border-bottom: 1px solid rgba(16, 33, 39, 0.04);
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.item-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.item-value.large {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.item-value.positive { color: #176a58; }
+.item-value.negative { color: #a33d31; }
+
+.detail-stats {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  padding: 16px 0;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.stat-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.stat-value.positive { color: #176a58; }
+.stat-value.negative { color: #a33d31; }
+
+.block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0 8px;
+}
+
+.block-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.block-header span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.account-chip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+
+.chip-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.chip-amount {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.chip-amount.asset { color: #176a58; }
+.chip-amount.debt { color: #a33d31; }
+
+.account-chip[data-tone="asset"] {
+  background: rgba(234, 245, 239, 0.9);
+}
+
+.account-chip[data-tone="investment"] {
+  background: rgba(255, 242, 225, 0.9);
+}
+
+.account-chip[data-tone="debt"] {
+  background: rgba(250, 232, 228, 0.9);
+}
+
 .stat-card {
   padding: 16px;
   border-radius: 14px;
@@ -478,15 +605,15 @@ label {
   background: rgba(255, 255, 255, 0.82);
 }
 
-.detail-card[data-tone="asset"] {
+.account-chip[data-tone="asset"] {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(234, 245, 239, 0.95));
 }
 
-.detail-card[data-tone="investment"] {
+.account-chip[data-tone="investment"] {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 242, 225, 0.95));
 }
 
-.detail-card[data-tone="debt"] {
+.account-chip[data-tone="debt"] {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(250, 232, 228, 0.95));
 }
 
@@ -572,6 +699,10 @@ label {
   .form-grid,
   .editor-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .detail-stats {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .metric-card strong,
