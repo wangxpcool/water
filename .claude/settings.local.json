@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd water-server:*)",
+      "Bash(cd water-web:*)",
+      "Bash(which mvn:*)",
+      "Bash(which java:*)",
+      "Bash(echo \"MAVEN_HOME=$MAVEN_HOME\")",
+      "Read(//c/Users/wangx/Desktop/peisonal/water/$MAVEN_HOME/**)",
+      "Bash(cmd.exe /c \"echo %MAVEN_HOME%\" 2>/dev/null)",
+      "Bash(export PATH=\"$MAVEN_HOME/bin:$PATH\" && cd water-server && mvn spring-boot:run)",
+      "Bash(scripts/start-server.sh --project-dir \"C:\\\\Users\\\\wangx\\\\Desktop\\\\peisonal\\\\water\")",
+      "Bash(cat \"C:\\\\Users\\\\wangx\\\\Desktop\\\\peisonal\\\\water\\\\.superpowers\\\\brainstorm\"/*/.server-info)",
+      "Read(//tmp/.superpowers/**)",
+      "Bash(bash \"C:\\\\Users\\\\wangx\\\\.claude\\\\plugins\\\\cache\\\\claude-plugins-official\\\\superpowers\\\\5.0.5\\\\skills\\\\brainstorming\\\\scripts\\\\start-server.sh\" --project-dir \"C:\\\\Users\\\\wangx\\\\Desktop\\\\peisonal\\\\water\")",
+      "Bash(sleep 3 && cat \"C:\\\\Users\\\\wangx\\\\Desktop\\\\peisonal\\\\water\\\\.superpowers\\\\brainstorm\"/*/.server-info 2>/dev/null || ls -la \"C:\\\\Users\\\\wangx\\\\Desktop\\\\peisonal\\\\water\\\\.superpowers\\\\brainstorm\" 2>/dev/null)",
+      "Bash(git check-ignore:*)",
+      "Bash(git add:*)",
+      "Bash(git worktree:*)",
+      "Bash(cd .worktrees/feat-net-worth-chart/water-web && npm install 2>&1 | tail -5)",
+      "Bash(cd .worktrees/feat-net-worth-chart/water-server && mvn test -q 2>&1 | tail -20)",
+      "Bash(cd \"C:/Users/wangx/Desktop/peisonal/water/.worktrees/feat-net-worth-chart/water-server\" && mvn test -q 2>&1 | tail -20)",
+      "Read(//c//**)",
+      "Read(//c/Users/wangx/Desktop/peisonal/water/.worktrees/feat-net-worth-chart/water-server/$HOME/**)",
+      "Bash(cd \"C:/Users/wangx/Desktop/peisonal/water/.worktrees/feat-net-worth-chart/water-web\" && npm install 2>&1 | tail -3)",
+      "Bash(curl -sI \"https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js\" | head -1)",
+      "Bash(git -C \"C:/Users/wangx/Desktop/peisonal/water/.worktrees/feat-net-worth-chart\" diff --stat HEAD~4..HEAD)",
+      "Bash(bash \"C:\\\\Users\\\\wangx\\\\.claude\\\\plugins\\\\cache\\\\claude-plugins-official\\\\superpowers\\\\5.0.5\\\\skills\\\\brainstorming\\\\scripts\\\\stop-server.sh\" \"C:\\\\Users\\\\wangx\\\\Desktop\\\\peisonal\\\\water\\\\.superpowers\\\\brainstorm\\\\1050-1774431080\" 2>/dev/null || echo \"Server may already be stopped\")",
+      "Bash(cd \"C:/Users/wangx/Desktop/peisonal/water/.worktrees/feat-net-worth-chart/water-web\" && npm test 2>&1 | tail -30)",
+      "Bash(git -C \"C:/Users/wangx/Desktop/peisonal/water/.worktrees/feat-net-worth-chart\" merge-base HEAD main)",
+      "Bash(cd \"C:/Users/wangx/Desktop/peisonal/water/.worktrees/feat-net-worth-chart/water-web\" && npm test 2>&1 | tail -5)",
+      "Bash(git -C \"C:/Users/wangx/Desktop/peisonal/water\" branch -D feat/net-worth-trend-chart 2>/dev/null; git -C \"C:/Users/wangx/Desktop/peisonal/water\" worktree list)",
+      "Bash(netstat -ano | findstr :8080)"
+    ]
+  }
+}

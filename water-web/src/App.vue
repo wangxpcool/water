@@ -2,6 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 const HOME_PAGE = "home";
+const SNAPSHOTS_PAGE = "snapshots";
+const ACCOUNT_LIST_PAGE = "account-list";
 const ACCOUNTS_PAGE = "accounts";
 
 const loading = ref(true);
@@ -249,7 +251,11 @@ async function loadAll() {
 }
 
 function resolvePageFromHash() {
-  return window.location.hash === "#/accounts" ? ACCOUNTS_PAGE : HOME_PAGE;
+  const hash = window.location.hash;
+  if (hash === "#/accounts") return ACCOUNTS_PAGE;
+  if (hash === "#/account-list") return ACCOUNT_LIST_PAGE;
+  if (hash === "#/snapshots") return SNAPSHOTS_PAGE;
+  return HOME_PAGE;
 }
 
 function syncPageFromHash() {
@@ -258,7 +264,15 @@ function syncPageFromHash() {
 
 function navigateTo(page) {
   currentPage.value = page;
-  window.location.hash = page === ACCOUNTS_PAGE ? "/accounts" : "/";
+  if (page === ACCOUNTS_PAGE) {
+    window.location.hash = "/accounts";
+  } else if (page === ACCOUNT_LIST_PAGE) {
+    window.location.hash = "/account-list";
+  } else if (page === SNAPSHOTS_PAGE) {
+    window.location.hash = "/snapshots";
+  } else {
+    window.location.hash = "/";
+  }
   formError.value = "";
 }
 
@@ -627,9 +641,11 @@ function formTone(account) {
           <div>
             <p class="eyebrow">Personal Asset Snapshot</p>
             <div class="hero-heading">
-              <h1>{{ currentPage === HOME_PAGE ? "资产快照" : "账户管理" }}</h1>
-              <p v-if="currentPage === HOME_PAGE">维护每日资产快照，查看汇总数据和账户明细。</p>
-              <p v-else>单独管理账户基础信息，首页只保留快照相关内容。</p>
+              <h1>{{ currentPage === HOME_PAGE ? "资产概览" : currentPage === SNAPSHOTS_PAGE ? "快照列表" : currentPage === ACCOUNT_LIST_PAGE ? "账户列表" : "账户管理" }}</h1>
+              <p v-if="currentPage === HOME_PAGE">净资产趋势图表</p>
+              <p v-else-if="currentPage === SNAPSHOTS_PAGE">管理每日资产快照</p>
+              <p v-else-if="currentPage === ACCOUNT_LIST_PAGE">查看所有账户</p>
+              <p v-else>管理账户基础信息</p>
             </div>
           </div>
 
@@ -644,16 +660,32 @@ function formTone(account) {
             </button>
             <button
               class="ghost-button"
+              :class="{ 'active-tab': currentPage === SNAPSHOTS_PAGE }"
+              type="button"
+              @click="navigateTo(SNAPSHOTS_PAGE)"
+            >
+              快照页
+            </button>
+            <button
+              class="ghost-button"
+              :class="{ 'active-tab': currentPage === ACCOUNT_LIST_PAGE }"
+              type="button"
+              @click="navigateTo(ACCOUNT_LIST_PAGE)"
+            >
+              账户列表
+            </button>
+            <button
+              class="ghost-button"
               :class="{ 'active-tab': currentPage === ACCOUNTS_PAGE }"
               type="button"
               @click="navigateTo(ACCOUNTS_PAGE)"
             >
-              账户页
+              账户设置
             </button>
           </div>
         </div>
 
-        <div v-if="currentPage === HOME_PAGE && latestSnapshot" class="hero-grid">
+        <div v-if="currentPage === SNAPSHOTS_PAGE && latestSnapshot" class="hero-grid">
           <article class="metric-card">
             <span>最新日期</span>
             <strong>{{ latestSnapshot.snapshotDate }}</strong>
@@ -669,6 +701,21 @@ function formTone(account) {
           <article class="metric-card">
             <span>净资产</span>
             <strong :class="summaryTone(latestNetWorth)">{{ formatAmount(latestNetWorth) }}</strong>
+          </article>
+        </div>
+
+        <div v-if="currentPage === ACCOUNT_LIST_PAGE" class="hero-grid">
+          <article class="metric-card">
+            <span>账户总数</span>
+            <strong>{{ accounts.length }}</strong>
+          </article>
+          <article class="metric-card">
+            <span>资产类账户</span>
+            <strong>{{ accounts.filter(a => a.balanceDirection === 'ASSET').length }}</strong>
+          </article>
+          <article class="metric-card">
+            <span>负债类账户</span>
+            <strong>{{ accounts.filter(a => a.balanceDirection === 'DEBT').length }}</strong>
           </article>
         </div>
       </section>
@@ -691,7 +738,7 @@ function formTone(account) {
         <div class="state-panel error">{{ formError }}</div>
       </section>
 
-      <template v-if="currentPage === HOME_PAGE">
+      <template v-if="currentPage === SNAPSHOTS_PAGE">
         <section v-if="isSnapshotEditing" class="content-card form-card">
           <div class="section-head">
             <div>
@@ -900,7 +947,67 @@ function formTone(account) {
         </section>
       </template>
 
-      <template v-else>
+      <template v-if="currentPage === ACCOUNT_LIST_PAGE">
+        <section class="content-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">All Accounts</p>
+              <h2>账户列表</h2>
+            </div>
+            <span class="count-chip">{{ accounts.length }} 个</span>
+          </div>
+
+          <div v-if="loading" class="state-panel">正在加载账户...</div>
+          <div v-else-if="error" class="state-panel error">{{ error }}</div>
+          <div v-else class="account-table-wrap">
+            <table class="account-table">
+              <thead>
+                <tr>
+                  <th>编码</th>
+                  <th>名称</th>
+                  <th>类型</th>
+                  <th>方向</th>
+                  <th>币种</th>
+                  <th>排序</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="account in accounts" :key="account.id">
+                  <td>{{ account.accountCode }}</td>
+                  <td>
+                    <strong>{{ account.accountName }}</strong>
+                    <div class="table-sub">{{ account.institutionName || account.remark || "--" }}</div>
+                  </td>
+                  <td>{{ account.accountType }}</td>
+                  <td>{{ account.balanceDirection }}</td>
+                  <td>{{ account.currencyCode }}</td>
+                  <td>{{ account.sortOrder }}</td>
+                  <td>{{ account.enabled ? "启用" : "停用" }}</td>
+                  <td>
+                    <div class="button-row">
+                      <button class="ghost-button small-button" type="button" @click="openEditAccountForm(account)">
+                        编辑
+                      </button>
+                      <button
+                        class="danger-button small-button"
+                        type="button"
+                        :disabled="deletingAccountId === account.id"
+                        @click="deleteAccount(account.id)"
+                      >
+                        {{ deletingAccountId === account.id ? "删除中..." : "删除" }}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </template>
+
+      <template v-else-if="currentPage === ACCOUNTS_PAGE">
         <section v-if="isAccountEditing" class="content-card form-card">
           <div class="section-head">
             <div>
@@ -963,64 +1070,6 @@ function formTone(account) {
               <span>启用</span>
               <input v-model="accountForm.enabled" type="checkbox" />
             </label>
-          </div>
-        </section>
-
-        <section class="content-card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">All Accounts</p>
-              <h2>账户列表</h2>
-            </div>
-            <span class="count-chip">{{ accounts.length }} 个</span>
-          </div>
-
-          <div v-if="loading" class="state-panel">正在加载账户...</div>
-          <div v-else-if="error" class="state-panel error">{{ error }}</div>
-          <div v-else class="account-table-wrap">
-            <table class="account-table">
-              <thead>
-                <tr>
-                  <th>编码</th>
-                  <th>名称</th>
-                  <th>类型</th>
-                  <th>方向</th>
-                  <th>币种</th>
-                  <th>排序</th>
-                  <th>状态</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="account in accounts" :key="account.id">
-                  <td>{{ account.accountCode }}</td>
-                  <td>
-                    <strong>{{ account.accountName }}</strong>
-                    <div class="table-sub">{{ account.institutionName || account.remark || "--" }}</div>
-                  </td>
-                  <td>{{ account.accountType }}</td>
-                  <td>{{ account.balanceDirection }}</td>
-                  <td>{{ account.currencyCode }}</td>
-                  <td>{{ account.sortOrder }}</td>
-                  <td>{{ account.enabled ? "启用" : "停用" }}</td>
-                  <td>
-                    <div class="button-row">
-                      <button class="ghost-button small-button" type="button" @click="openEditAccountForm(account)">
-                        编辑
-                      </button>
-                      <button
-                        class="danger-button small-button"
-                        type="button"
-                        :disabled="deletingAccountId === account.id"
-                        @click="deleteAccount(account.id)"
-                      >
-                        {{ deletingAccountId === account.id ? "删除中..." : "删除" }}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
           </div>
         </section>
       </template>

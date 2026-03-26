@@ -1,0 +1,113 @@
+<h2>数据可视化方案</h2>
+<p class="subtitle">选择你想在首页展示的图表类型</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>净资产趋势折线图</h3>
+      <p>展示净资产随时间变化的趋势，直观看到资产增长或下降</p>
+      <div class="mockup">
+        <div class="mockup-body">
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;height:120px;padding:10px;border-bottom:2px solid #333;">
+            <div style="flex:1;height:80%;background:#176a58;border-radius:4px 4px 0 0;margin:0 4px;"></div>
+            <div style="flex:1;height:65%;background:#176a58;border-radius:4px 4px 0 0;margin:0 4px;"></div>
+            <div style="flex:1;height:90%;background:#176a58;border-radius:4px 4px 0 0;margin:0 4px;"></div>
+            <div style="flex:1;height:75%;background:#176a58;border-radius:4px 4px 0 0;margin:0 4px;"></div>
+            <div style="flex:1;height:100%;background:#176a58;border-radius:4px 4px 0 0;margin:0 4px;"></div>
+            <div style="flex:1;height:85%;background:#176a58;border-radius:4px 4px 0 0;margin:0 4px;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:8px 10px 0;font-size:11px;color:#587078;">
+            <span>1月</span><span>2月</span><span>3月</span><span>4月</span><span>5月</span><span>6月</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>资产构成饼图/环形图</h3>
+      <p>展示现金、投资、负债的比例分布，了解资产结构</p>
+      <div class="mockup">
+        <div class="mockup-body" style="display:flex;align-items:center;gap:20px;">
+          <div style="width:100px;height:100px;border-radius:50%;background:conic-gradient(#176a58 0% 45%, #b05f2f 45% 70%, #a33d31 70% 100%);position:relative;">
+            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:50px;height:50px;background:#f7f1e6;border-radius:50%;"></div>
+          </div>
+          <div style="font-size:13px;">
+            <div style="display:flex;align-items:center;gap:8px;margin:6px 0;"><span style="width:12px;height:12px;background:#176a58;border-radius:2px;"></span>现金 45%</div>
+            <div style="display:flex;align-items:center;gap:8px;margin:6px 0;"><span style="width:12px;height:12px;background:#b05f2f;border-radius:2px;"></span>投资 25%</div>
+            <div style="display:flex;align-items:center;gap:8px;margin:6px 0;"><span style="width:12px;height:12px;background:#a33d31;border-radius:2px;"></span>负债 30%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>月度对比柱状图</h3>
+      <p>对比相邻月份的资产、负债、净资产，发现变化趋势</p>
+      <div class="mockup">
+        <div class="mockup-body">
+          <div style="display:flex;align-items:flex-end;justify-content:center;gap:24px;height:120px;padding:10px;border-bottom:2px solid #333;">
+            <div style="text-align:center;">
+              <div style="display:flex;gap:6px;align-items:flex-end;">
+                <div style="width:20px;height:70px;background:#176a58;border-radius:4px 4px 0 0;"></div>
+                <div style="width:20px;height:30px;background:#a33d31;border-radius:4px 4px 0 0;"></div>
+              </div>
+              <div style="padding-top:8px;font-size:11px;color:#587078;">5月</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="display:flex;gap:6px;align-items:flex-end;">
+                <div style="width:20px;height:85px;background:#176a58;border-radius:4px 4px 0 0;"></div>
+                <div style="width:20px;height:25px;background:#a33d31;border-radius:4px 4px 0 0;"></div>
+              </div>
+              <div style="padding-top:8px;font-size:11px;color:#587078;">6月</div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:center;gap:20px;padding:8px;font-size:11px;color:#587078;">
+            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#176a58;"></span>净资产</span>
+            <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#a33d31;"></span>负债</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="d" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>综合仪表盘</h3>
+      <p>折线图 + 饼图 + 统计卡片，一目了然查看所有关键数据</p>
+      <div class="mockup">
+        <div class="mockup-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div style="border:1px solid #ddd;border-radius:12px;padding:10px;">
+              <div style="font-size:11px;color:#587078;margin-bottom:8px;">净资产趋势</div>
+              <div style="display:flex;align-items:flex-end;gap:3px;height:50px;">
+                <div style="flex:1;height:60%;background:#176a58;border-radius:2px;"></div>
+                <div style="flex:1;height:80%;background:#176a58;border-radius:2px;"></div>
+                <div style="flex:1;height:70%;background:#176a58;border-radius:2px;"></div>
+                <div style="flex:1;height:90%;background:#176a58;border-radius:2px;"></div>
+              </div>
+            </div>
+            <div style="border:1px solid #ddd;border-radius:12px;padding:10px;">
+              <div style="font-size:11px;color:#587078;margin-bottom:8px;">资产构成</div>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div style="width:50px;height:50px;border-radius:50%;background:conic-gradient(#176a58 0% 50%, #b05f2f 50% 75%, #a33d31 75% 100%);"></div>
+                <div style="font-size:11px;">
+                  <div>资产 50%</div>
+                  <div>投资 25%</div>
+                  <div>负债 25%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
