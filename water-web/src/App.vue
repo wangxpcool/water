@@ -31,9 +31,7 @@ const totalAssets = computed(() => {
   if (!latestSnapshot.value) {
     return null;
   }
-  return numberValue(latestSnapshot.value.cashTotal)
-    + numberValue(latestSnapshot.value.investmentTotal)
-    + numberValue(latestSnapshot.value.publicFunds);
+  return calculateSnapshotTotalAssets(latestSnapshot.value);
 });
 const latestDebts = computed(() => numberValue(latestSnapshot.value?.liabilityTotal));
 const latestNetWorth = computed(() => latestSnapshot.value?.netWorth ?? null);
@@ -62,12 +60,7 @@ const chartData = computed(() => {
   return {
     labels: chartSnapshots.value.map((s) => s.snapshotDate),
     netWorth: chartSnapshots.value.map((s) => (s.netWorth !== null ? Number(s.netWorth) : null)),
-    totalAssets: chartSnapshots.value.map(
-      (s) =>
-        numberValue(s.cashTotal) +
-        numberValue(s.investmentTotal) +
-        numberValue(s.publicFunds)
-    ),
+    totalAssets: chartSnapshots.value.map((s) => calculateSnapshotTotalAssets(s)),
     totalDebt: chartSnapshots.value.map((s) => (s.liabilityTotal !== null ? Number(s.liabilityTotal) : null))
   };
 });
@@ -334,6 +327,24 @@ function parseNullableNumber(value) {
 function numberValue(value) {
   const numeric = Number(value);
   return Number.isNaN(numeric) ? 0 : numeric;
+}
+
+function receivablesValue(snapshot) {
+  if (!snapshot?.details?.length) {
+    return 0;
+  }
+  const receivables = snapshot.details.find((detail) => detail.accountCode === "RECEIVABLES");
+  return numberValue(receivables?.amount);
+}
+
+function calculateSnapshotTotalAssets(snapshot) {
+  if (!snapshot) {
+    return null;
+  }
+  return numberValue(snapshot.cashTotal)
+    + numberValue(snapshot.investmentTotal)
+    + numberValue(snapshot.publicFunds)
+    + receivablesValue(snapshot);
 }
 
 function accountDetailDraft(snapshot, account) {

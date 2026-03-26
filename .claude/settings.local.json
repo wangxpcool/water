@@ -1,8 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cd water-server:*)",
-      "Bash(cd water-web:*)",
+      "Bash(cd water-server **)",
+      "Bash(cd water-web **)",
       "Bash(which mvn:*)",
       "Bash(which java:*)",
       "Bash(echo \"MAVEN_HOME=$MAVEN_HOME\")",
@@ -30,7 +30,25 @@
       "Bash(git -C \"C:/Users/wangx/Desktop/peisonal/water/.worktrees/feat-net-worth-chart\" merge-base HEAD main)",
       "Bash(cd \"C:/Users/wangx/Desktop/peisonal/water/.worktrees/feat-net-worth-chart/water-web\" && npm test 2>&1 | tail -5)",
       "Bash(git -C \"C:/Users/wangx/Desktop/peisonal/water\" branch -D feat/net-worth-trend-chart 2>/dev/null; git -C \"C:/Users/wangx/Desktop/peisonal/water\" worktree list)",
-      "Bash(netstat -ano | findstr :8080)"
+      "Bash(netstat -ano | findstr :8080)",
+      "Bash(git show:*)",
+      "Bash(netstat -ano | grep 8080)",
+      "Bash(tasklist /FI \"PID eq 22060\" 2>/dev/null || ps -p 22060 -o comm=)",
+      "Bash(wmic process:*)",
+      "Bash(powershell -Command \"Get-Process -Id 22060 | Select-Object Path,WorkingSet,StartTime\")",
+      "Bash(taskkill //PID 22060 //F)",
+      "Bash(netstat -ano | grep -E \"5173|3000|5174\")",
+      "Bash(powershell -Command \"Get-Process -Id 1732 | Select-Object Path,WorkingSet,StartTime\")",
+      "Bash(taskkill //PID 1732 //F)",
+      "Bash(taskkill //PID 27040 //F 2>/dev/null; netstat -ano | grep -E \"5173|5174\" | head -5)",
+      "Bash(curl -s http://localhost:8080/api/accounts 2>/dev/null | head -100 || echo \"Backend not running, checking DB directly\")",
+      "Bash(sqlite3 water.db \"SELECT id, account_code, account_name, account_type, balance_direction FROM asset_account WHERE account_name LIKE '%欠款%' OR account_code LIKE '%DEBT%' OR account_code LIKE '%RECEIVABLE%';\" 2>/dev/null || echo \"sqlite3 not available\")",
+      "Bash(curl -s http://localhost:8080/api/snapshots 2>/dev/null | python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); print\\('Latest 3 snapshots:'\\); [print\\(f\\\\\"Date: {s['snapshotDate']}, cashTotal: {s['cashTotal']}, investmentTotal: {s['investmentTotal']}, liabilityTotal: {s['liabilityTotal']}, netWorth: {s['netWorth']}, publicFunds: {s['publicFunds']}\\\\\"\\) for s in data[:3]]\" 2>/dev/null || echo \"Backend not running or curl failed\")",
+      "Bash(taskkill /F /IM java.exe 2>/dev/null; taskkill /F /IM node.exe 2>/dev/null; sleep 2; echo \"killed\")",
+      "Bash(sleep 15 && curl -s http://localhost:8080/api/snapshots | head -c 100 && echo \"---backend ok---\" || echo \"backend not ready\")",
+      "Bash(curl -s http://localhost:5173 | head -c 100 && echo \"---frontend ok---\" || echo \"frontend not ready\")",
+      "Bash(curl -s http://localhost:8080/api/snapshots > /dev/null && echo \"backend still running\" || echo \"backend stopped\")",
+      "Bash(curl -s http://localhost:5173 > /dev/null && echo \"frontend still running\" || echo \"frontend stopped\")"
     ]
   }
 }
