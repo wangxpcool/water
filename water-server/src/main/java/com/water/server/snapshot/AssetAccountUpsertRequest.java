@@ -6,7 +6,10 @@ import jakarta.validation.constraints.NotNull;
 public record AssetAccountUpsertRequest(
         @NotBlank String accountCode,
         @NotBlank String accountName,
+        @NotBlank String categoryGroup,
         @NotBlank String accountType,
+        Long parentAccountId,
+        @NotNull Boolean summaryAccount,
         @NotBlank String balanceDirection,
         @NotBlank String currencyCode,
         String institutionName,

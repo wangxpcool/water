@@ -15,6 +15,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
 class AssetSnapshotCommandServiceTests {
@@ -39,12 +40,7 @@ class AssetSnapshotCommandServiceTests {
                 LocalDate.of(2026, 3, 23),
                 new BigDecimal("2.5"),
                 new BigDecimal("1.2"),
-                new BigDecimal("100.5"),
-                new BigDecimal("200.4"),
-                new BigDecimal("30"),
-                new BigDecimal("300.9"),
                 new BigDecimal("10"),
-                new BigDecimal("270.9"),
                 new BigDecimal("88"),
                 new BigDecimal("5.5"),
                 new BigDecimal("358.9"),
@@ -52,23 +48,25 @@ class AssetSnapshotCommandServiceTests {
                 "first remark",
                 List.of(
                         new AssetSnapshotDetailUpsertRequest("ALIPAY", new BigDecimal("20.5"), null, "CNY", null),
-                        new AssetSnapshotDetailUpsertRequest("US_STOCK_ACCOUNT", new BigDecimal("12.8"), null, "USD", "broker")
+                        new AssetSnapshotDetailUpsertRequest("DEFAULT_BANK_CARD", new BigDecimal("80.0"), null, "CNY", null),
+                        new AssetSnapshotDetailUpsertRequest("US_STOCK_ACCOUNT", new BigDecimal("12.8"), null, "USD", "broker"),
+                        new AssetSnapshotDetailUpsertRequest("CREDIT_CARD_DUE", new BigDecimal("30"), null, "CNY", null)
                 )
         ));
 
         assertEquals(LocalDate.of(2026, 3, 23), created.snapshotDate());
-        assertEquals(2, created.details().size());
+        assertEquals(new BigDecimal("100.5"), created.cashTotal());
+        assertEquals(new BigDecimal("12.8"), created.investmentTotal());
+        assertEquals(new BigDecimal("30"), created.liabilityTotal());
+        assertEquals(new BigDecimal("113.3"), created.grossAccountValue());
+        assertEquals(new BigDecimal("83.3"), created.netWorth());
+        assertTrue(created.details().stream().anyMatch(detail -> detail.accountCode().equals("BANK_CARDS")));
 
         AssetSnapshotResponse updated = assetSnapshotCommandService.updateSnapshot(created.id(), new AssetSnapshotUpsertRequest(
                 LocalDate.of(2026, 3, 24),
                 new BigDecimal("3.5"),
                 new BigDecimal("1.8"),
-                new BigDecimal("110.5"),
-                new BigDecimal("260.4"),
-                new BigDecimal("22"),
-                new BigDecimal("370.9"),
                 new BigDecimal("16"),
-                new BigDecimal("348.9"),
                 new BigDecimal("98"),
                 null,
                 new BigDecimal("446.9"),
@@ -76,14 +74,18 @@ class AssetSnapshotCommandServiceTests {
                 "updated remark",
                 List.of(
                         new AssetSnapshotDetailUpsertRequest("WECHAT", new BigDecimal("8.6"), null, "CNY", null),
-                        new AssetSnapshotDetailUpsertRequest("HOUSING_FUND", new BigDecimal("98"), null, "CNY", "reserve")
+                        new AssetSnapshotDetailUpsertRequest("HOUSING_FUND", new BigDecimal("98"), null, "CNY", "reserve"),
+                        new AssetSnapshotDetailUpsertRequest("INVESTMENT_LOSS", new BigDecimal("4"), null, "CNY", null)
                 )
         ));
 
         assertEquals(LocalDate.of(2026, 3, 24), updated.snapshotDate());
         assertEquals("updated note", updated.note());
-        assertEquals(2, updated.details().size());
-        assertEquals("WECHAT", updated.details().get(0).accountCode());
+        assertEquals(new BigDecimal("106.6"), updated.cashTotal());
+        assertEquals(new BigDecimal("-4"), updated.investmentTotal());
+        assertEquals(new BigDecimal("4"), updated.liabilityTotal());
+        assertEquals(new BigDecimal("106.6"), updated.grossAccountValue());
+        assertEquals(new BigDecimal("102.6"), updated.netWorth());
 
         assetSnapshotCommandService.deleteSnapshot(created.id());
 

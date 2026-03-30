@@ -1,5 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import AccountEditor from "./components/AccountEditor.vue";
+import SnapshotEditor from "./components/SnapshotEditor.vue";
 
 const HOME_PAGE = "home";
 const SNAPSHOTS_PAGE = "snapshots";
@@ -25,6 +27,7 @@ let netWorthChartInstance = null;
 
 const snapshotForm = reactive(createEmptySnapshotForm());
 const accountForm = reactive(createEmptyAccountForm());
+const accountListFilters = reactive(createAccountListFilters());
 
 const latestSnapshot = computed(() => snapshots.value[0] ?? null);
 const totalAssets = computed(() => {
@@ -35,6 +38,104 @@ const totalAssets = computed(() => {
 });
 const latestDebts = computed(() => numberValue(latestSnapshot.value?.liabilityTotal));
 const latestNetWorth = computed(() => latestSnapshot.value?.netWorth ?? null);
+const categoryGroupLabels = {
+  CASH: "现金",
+  INVESTMENT: "投资",
+  LIABILITY: "借贷"
+};
+const accountGroupOrder = ["CASH", "INVESTMENT", "LIABILITY"];
+const accountIdMap = computed(() => new Map(accounts.value.map((account) => [account.id, account])));
+const filteredAccounts = computed(() => {
+  const query = accountListFilters.query.trim().toLowerCase();
+
+  return accounts.value.filter((account) => {
+    if (accountListFilters.group !== "ALL" && account.categoryGroup !== accountListFilters.group) {
+      return false;
+    }
+
+    if (accountListFilters.status === "ENABLED" && !account.enabled) {
+      return false;
+    }
+    if (accountListFilters.status === "DISABLED" && account.enabled) {
+      return false;
+    }
+
+    if (accountListFilters.structure === "SUMMARY" && !account.summaryAccount) {
+      return false;
+    }
+    if (accountListFilters.structure === "DETAIL" && account.summaryAccount) {
+      return false;
+    }
+
+    if (!query) {
+      return true;
+    }
+
+    const parentName = accountIdMap.value.get(account.parentAccountId)?.accountName ?? "";
+    const haystack = [
+      account.accountCode,
+      account.accountName,
+      account.accountType,
+      account.balanceDirection,
+      account.currencyCode,
+      account.institutionName,
+      account.ownerName,
+      account.remark,
+      parentName,
+      categoryGroupLabel(account.categoryGroup)
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    return haystack.includes(query);
+  });
+});
+const groupedAccounts = computed(() =>
+  accountGroupOrder.map((group) => ({
+    key: group,
+    label: categoryGroupLabels[group],
+    items: filteredAccounts.value.filter((account) => account.categoryGroup === group)
+  }))
+);
+const summaryParentOptions = computed(() => accounts.value.filter((account) => account.summaryAccount));
+const accountListSummary = computed(() => ({
+  total: filteredAccounts.value.length,
+  enabled: filteredAccounts.value.filter((account) => account.enabled).length,
+  summary: filteredAccounts.value.filter((account) => account.summaryAccount).length,
+  withBalance: filteredAccounts.value.filter((account) => account.latestAmount !== null && account.latestAmount !== undefined).length
+}));
+const accountTableRows = computed(() =>
+  groupedAccounts.value.flatMap((group) => {
+    const itemsByParent = new Map();
+    for (const item of group.items) {
+      const key = item.parentAccountId ?? "root";
+      const bucket = itemsByParent.get(key) ?? [];
+      bucket.push(item);
+      itemsByParent.set(key, bucket);
+    }
+
+    const rows = [];
+    const visit = (parentId, level) => {
+      const children = itemsByParent.get(parentId ?? "root") ?? [];
+      for (const child of children) {
+        rows.push({
+          ...child,
+          level,
+          isChild: level > 0
+        });
+        visit(child.id, level + 1);
+      }
+    };
+
+    visit(null, 0);
+    return rows.map((account, index) => ({
+      ...account,
+      showCategoryGroup: index === 0,
+      categoryGroupRowSpan: index === 0 ? rows.length : 0
+    }));
+  })
+);
 
 const isSnapshotCreating = computed(() => editingId.value === "new");
 const isSnapshotEditing = computed(() => editingId.value !== null);
@@ -274,12 +375,7 @@ function createEmptySnapshotForm() {
     snapshotDate: "",
     income: "",
     fixedExpense: "",
-    cashTotal: "",
-    investmentTotal: "",
-    liabilityTotal: "",
-    grossAccountValue: "",
     profitLoss: "",
-    netWorth: "",
     publicFunds: "",
     extraAmount: "",
     balance: "",
@@ -293,7 +389,10 @@ function createEmptyAccountForm() {
   return {
     accountCode: "",
     accountName: "",
+    categoryGroup: "CASH",
     accountType: "EWALLET",
+    parentAccountId: "",
+    summaryAccount: false,
     balanceDirection: "ASSET",
     currencyCode: "CNY",
     institutionName: "",
@@ -304,12 +403,25 @@ function createEmptyAccountForm() {
   };
 }
 
+function createAccountListFilters() {
+  return {
+    query: "",
+    group: "ALL",
+    status: "ALL",
+    structure: "ALL"
+  };
+}
+
 function resetSnapshotForm(next) {
   Object.assign(snapshotForm, createEmptySnapshotForm(), next);
 }
 
 function resetAccountForm(next) {
   Object.assign(accountForm, createEmptyAccountForm(), next);
+}
+
+function resetAccountListFilters() {
+  Object.assign(accountListFilters, createAccountListFilters());
 }
 
 function toFieldValue(value) {
@@ -341,10 +453,40 @@ function calculateSnapshotTotalAssets(snapshot) {
   if (!snapshot) {
     return null;
   }
-  return numberValue(snapshot.cashTotal)
-    + numberValue(snapshot.investmentTotal)
-    + numberValue(snapshot.publicFunds)
-    + receivablesValue(snapshot);
+  return numberValue(snapshot.grossAccountValue);
+}
+
+function categoryGroupLabel(group) {
+  return categoryGroupLabels[group] ?? group ?? "--";
+}
+
+function accountRowName(account) {
+  return `${"\u00A0\u00A0".repeat(account.level ?? 0)}${account.accountName}`;
+}
+
+function accountParentName(account) {
+  if (!account?.parentAccountId) {
+    return "--";
+  }
+  return accountIdMap.value.get(account.parentAccountId)?.accountName ?? "--";
+}
+
+function accountStatusLabel(account) {
+  return account.enabled ? "启用" : "停用";
+}
+
+function accountStructureLabel(account) {
+  return account.summaryAccount ? "汇总账户" : "明细账户";
+}
+
+function latestAmountTone(account) {
+  if (account.latestAmount === null || account.latestAmount === undefined) {
+    return "";
+  }
+  if (account.balanceDirection === "DEBT") {
+    return "negative";
+  }
+  return Number(account.latestAmount) < 0 ? "negative" : "positive";
 }
 
 function accountDetailDraft(snapshot, account) {
@@ -353,6 +495,9 @@ function accountDetailDraft(snapshot, account) {
     accountCode: account.accountCode,
     accountName: account.accountName,
     accountType: account.accountType,
+    categoryGroup: account.categoryGroup,
+    parentAccountId: account.parentAccountId,
+    summaryAccount: account.summaryAccount,
     balanceDirection: account.balanceDirection,
     currencyCode: existing?.currencyCode ?? account.currencyCode,
     amount: toFieldValue(existing?.amount)
@@ -375,12 +520,7 @@ function openEditSnapshotForm(snapshot) {
     snapshotDate: snapshot.snapshotDate ?? "",
     income: toFieldValue(snapshot.income),
     fixedExpense: toFieldValue(snapshot.fixedExpense),
-    cashTotal: toFieldValue(snapshot.cashTotal),
-    investmentTotal: toFieldValue(snapshot.investmentTotal),
-    liabilityTotal: toFieldValue(snapshot.liabilityTotal),
-    grossAccountValue: toFieldValue(snapshot.grossAccountValue),
     profitLoss: toFieldValue(snapshot.profitLoss),
-    netWorth: toFieldValue(snapshot.netWorth),
     publicFunds: toFieldValue(snapshot.publicFunds),
     extraAmount: toFieldValue(snapshot.extraAmount),
     balance: toFieldValue(snapshot.balance),
@@ -401,12 +541,7 @@ function buildSnapshotPayload() {
     snapshotDate: snapshotForm.snapshotDate,
     income: parseNullableNumber(snapshotForm.income),
     fixedExpense: parseNullableNumber(snapshotForm.fixedExpense),
-    cashTotal: parseNullableNumber(snapshotForm.cashTotal),
-    investmentTotal: parseNullableNumber(snapshotForm.investmentTotal),
-    liabilityTotal: parseNullableNumber(snapshotForm.liabilityTotal),
-    grossAccountValue: parseNullableNumber(snapshotForm.grossAccountValue),
     profitLoss: parseNullableNumber(snapshotForm.profitLoss),
-    netWorth: parseNullableNumber(snapshotForm.netWorth),
     publicFunds: parseNullableNumber(snapshotForm.publicFunds),
     extraAmount: parseNullableNumber(snapshotForm.extraAmount),
     balance: parseNullableNumber(snapshotForm.balance),
@@ -499,7 +634,10 @@ function openEditAccountForm(account) {
   resetAccountForm({
     accountCode: account.accountCode ?? "",
     accountName: account.accountName ?? "",
+    categoryGroup: account.categoryGroup ?? "CASH",
     accountType: account.accountType ?? "EWALLET",
+    parentAccountId: toFieldValue(account.parentAccountId),
+    summaryAccount: Boolean(account.summaryAccount),
     balanceDirection: account.balanceDirection ?? "ASSET",
     currencyCode: account.currencyCode ?? "CNY",
     institutionName: account.institutionName ?? "",
@@ -520,7 +658,10 @@ function buildAccountPayload() {
   return {
     accountCode: accountForm.accountCode.trim(),
     accountName: accountForm.accountName.trim(),
+    categoryGroup: accountForm.categoryGroup.trim(),
     accountType: accountForm.accountType.trim(),
+    parentAccountId: accountForm.summaryAccount ? null : (accountForm.parentAccountId ? Number(accountForm.parentAccountId) : null),
+    summaryAccount: Boolean(accountForm.summaryAccount),
     balanceDirection: accountForm.balanceDirection.trim(),
     currencyCode: accountForm.currencyCode.trim(),
     institutionName: accountForm.institutionName.trim() || null,
@@ -533,7 +674,7 @@ function buildAccountPayload() {
 
 async function submitAccountForm() {
   formError.value = "";
-  if (!accountForm.accountCode.trim() || !accountForm.accountName.trim()) {
+  if (!accountForm.accountCode.trim() || !accountForm.accountName.trim() || !accountForm.categoryGroup.trim()) {
     formError.value = "账户编码和账户名称不能为空";
     return;
   }
@@ -617,10 +758,10 @@ function formatAmount(value, currencyCode = "CNY") {
 }
 
 function detailTone(detail) {
-  if (detail.balanceDirection === "DEBT") {
+  if (detail.categoryGroup === "LIABILITY") {
     return "debt";
   }
-  if (detail.accountType === "INVESTMENT") {
+  if (detail.categoryGroup === "INVESTMENT") {
     return "investment";
   }
   return "asset";
@@ -634,10 +775,10 @@ function summaryTone(value) {
 }
 
 function formTone(account) {
-  if (account.balanceDirection === "DEBT") {
+  if (account.categoryGroup === "LIABILITY") {
     return "debt";
   }
-  if (account.accountType === "INVESTMENT") {
+  if (account.categoryGroup === "INVESTMENT") {
     return "investment";
   }
   return "asset";
@@ -718,15 +859,23 @@ function formTone(account) {
         <div v-if="currentPage === ACCOUNT_LIST_PAGE" class="hero-grid">
           <article class="metric-card">
             <span>账户总数</span>
-            <strong>{{ accounts.length }}</strong>
+            <strong>{{ accountListSummary.total }}</strong>
+            <div class="table-sub">全部 {{ accounts.length }} 个账户</div>
           </article>
           <article class="metric-card">
             <span>资产类账户</span>
-            <strong>{{ accounts.filter(a => a.balanceDirection === 'ASSET').length }}</strong>
+            <strong>{{ accountListSummary.enabled }}</strong>
+            <div class="table-sub">可用于快照和日常维护</div>
           </article>
           <article class="metric-card">
             <span>负债类账户</span>
-            <strong>{{ accounts.filter(a => a.balanceDirection === 'DEBT').length }}</strong>
+            <strong>{{ accountListSummary.summary }}</strong>
+            <div class="table-sub">适合作为父账户管理层级</div>
+          </article>
+          <article class="metric-card">
+            <span>鍊熻捶绫昏处鎴?</span>
+            <strong>{{ accountListSummary.withBalance }}</strong>
+            <div class="table-sub">已出现在最近一次快照中</div>
           </article>
         </div>
       </section>
@@ -764,7 +913,63 @@ function formTone(account) {
             </div>
           </div>
 
-          <div class="form-grid">
+          <SnapshotEditor
+            :snapshot-form="snapshotForm"
+            :category-group-label="categoryGroupLabel"
+            :form-tone="formTone"
+          />
+
+          <div class="form-grid snapshot-editor-clean">
+            <label class="field">
+              <span>快照日期</span>
+              <input v-model="snapshotForm.snapshotDate" type="date" />
+            </label>
+            <label class="field">
+              <span>收入</span>
+              <input v-model="snapshotForm.income" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>固定支出</span>
+              <input v-model="snapshotForm.fixedExpense" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>盈亏</span>
+              <input v-model="snapshotForm.profitLoss" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>公积金 / 公共资金</span>
+              <input v-model="snapshotForm.publicFunds" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>额外金额</span>
+              <input v-model="snapshotForm.extraAmount" type="number" step="0.01" />
+            </label>
+            <label class="field">
+              <span>余额</span>
+              <input v-model="snapshotForm.balance" type="number" step="0.01" />
+            </label>
+            <label class="field field-wide">
+              <span>备注</span>
+              <textarea v-model="snapshotForm.note" rows="3" />
+            </label>
+            <label class="field field-wide">
+              <span>补充说明</span>
+              <textarea v-model="snapshotForm.remark" rows="3" />
+            </label>
+          </div>
+
+          <div class="detail-summary editor-summary-clean">
+            <div class="summary-item">
+              <span class="item-label">自动汇总</span>
+              <span class="item-value large">{{ snapshotForm.details.length }} 个账户明细参与计算</span>
+            </div>
+            <div class="summary-item">
+              <span class="item-label">说明</span>
+              <span class="item-value muted">现金、投资、负债、账户总值和净资产会在保存时由系统自动计算。</span>
+            </div>
+          </div>
+
+          <div class="form-grid snapshot-form-grid">
             <label class="field">
               <span>快照日期</span>
               <input v-model="snapshotForm.snapshotDate" type="date" />
@@ -779,7 +984,6 @@ function formTone(account) {
             </label>
             <label class="field">
               <span>现金总额</span>
-              <input v-model="snapshotForm.cashTotal" type="number" step="0.01" />
             </label>
             <label class="field">
               <span>投资总额</span>
@@ -823,6 +1027,17 @@ function formTone(account) {
             </label>
           </div>
 
+          <div class="detail-summary editor-summary">
+            <div class="summary-item">
+              <span class="item-label">自动汇总</span>
+              <span class="item-value large">{{ snapshotForm.details.length }} 个账户明细参与计算</span>
+            </div>
+            <div class="summary-item">
+              <span class="item-label">说明</span>
+              <span class="item-value muted">现金、投资、负债、账户总值和净资产会在保存时由系统自动计算。</span>
+            </div>
+          </div>
+
           <div class="detail-block">
             <div class="detail-head">
               <h3>账户明细</h3>
@@ -842,7 +1057,7 @@ function formTone(account) {
                 </div>
 
                 <div class="detail-meta">
-                  <span>{{ detail.accountType }}</span>
+                  <span>{{ categoryGroupLabel(detail.categoryGroup) }}</span>
                   <span>{{ detail.currencyCode }}</span>
                 </div>
 
@@ -944,6 +1159,7 @@ function formTone(account) {
                       :data-tone="detailTone(detail)"
                     >
                       <span class="chip-name">{{ detail.accountName }}</span>
+                      <span class="chip-name">{{ categoryGroupLabel(detail.categoryGroup) }}</span>
                       <span class="chip-amount" :class="detail.balanceDirection === 'DEBT' ? 'debt' : 'asset'">
                         {{ formatAmount(detail.amount, detail.currencyCode) }}
                       </span>
@@ -968,10 +1184,53 @@ function formTone(account) {
 
           <div v-if="loading" class="state-panel">正在加载账户...</div>
           <div v-else-if="error" class="state-panel error">{{ error }}</div>
-          <div v-else class="account-table-wrap">
+          <div v-else class="account-list-panel">
+            <div class="account-filter-bar">
+              <label class="field">
+                <span>搜索账户</span>
+                <input v-model="accountListFilters.query" type="text" placeholder="名称、编码、机构、备注" />
+              </label>
+              <label class="field">
+                <span>分类</span>
+                <select v-model="accountListFilters.group">
+                  <option value="ALL">全部分类</option>
+                  <option value="CASH">现金</option>
+                  <option value="INVESTMENT">投资</option>
+                  <option value="LIABILITY">负债</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>状态</span>
+                <select v-model="accountListFilters.status">
+                  <option value="ALL">全部状态</option>
+                  <option value="ENABLED">仅启用</option>
+                  <option value="DISABLED">仅停用</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>结构</span>
+                <select v-model="accountListFilters.structure">
+                  <option value="ALL">全部结构</option>
+                  <option value="SUMMARY">汇总账户</option>
+                  <option value="DETAIL">明细账户</option>
+                </select>
+              </label>
+              <div class="account-filter-actions">
+                <button class="ghost-button" type="button" @click="resetAccountListFilters">重置筛选</button>
+                <button class="primary-button" type="button" @click="navigateTo(ACCOUNTS_PAGE)">新增/管理账户</button>
+              </div>
+            </div>
+
+            <div v-if="accountTableRows.length === 0" class="state-panel">
+              当前筛选条件下没有账户
+            </div>
+
+            <div v-else class="account-table-wrap desktop-account-view">
             <table class="account-table">
               <thead>
                 <tr>
+                  <th>最新余额</th>
+                  <th>澶х被</th>
                   <th>编码</th>
                   <th>名称</th>
                   <th>类型</th>
@@ -983,10 +1242,15 @@ function formTone(account) {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="account in accounts" :key="account.id">
+                <tr v-for="account in accountTableRows" :key="account.id">
+                  <td :class="latestAmountTone(account)">{{ formatAmount(account.latestAmount, account.currencyCode) }}</td>
+                  <td v-if="account.showCategoryGroup" :rowspan="account.categoryGroupRowSpan">
+                    {{ categoryGroupLabel(account.categoryGroup) }}
+                  </td>
                   <td>{{ account.accountCode }}</td>
                   <td>
-                    <strong>{{ account.accountName }}</strong>
+                    <strong>{{ accountRowName(account) }}</strong>
+                    <div v-if="account.summaryAccount" class="table-sub">汇总账户</div>
                     <div class="table-sub">{{ account.institutionName || account.remark || "--" }}</div>
                   </td>
                   <td>{{ account.accountType }}</td>
@@ -1013,6 +1277,44 @@ function formTone(account) {
               </tbody>
             </table>
           </div>
+
+            <div v-if="accountTableRows.length > 0" class="account-card-list mobile-account-view">
+              <article v-for="account in accountTableRows" :key="`mobile-${account.id}`" class="account-list-card">
+                <div class="account-list-card-top">
+                  <div>
+                    <div class="account-list-tags">
+                      <span class="account-list-tag">{{ categoryGroupLabel(account.categoryGroup) }}</span>
+                      <span class="account-list-tag muted">{{ accountStructureLabel(account) }}</span>
+                    </div>
+                    <h3>{{ account.accountName }}</h3>
+                    <p>{{ account.accountCode }} · {{ account.accountType }}</p>
+                  </div>
+                  <strong :class="latestAmountTone(account)">{{ formatAmount(account.latestAmount, account.currencyCode) }}</strong>
+                </div>
+
+                <div class="account-list-meta">
+                  <span>父账户：{{ accountParentName(account) }}</span>
+                  <span>状态：{{ accountStatusLabel(account) }}</span>
+                  <span>方向：{{ account.balanceDirection }}</span>
+                  <span>币种：{{ account.currencyCode }}</span>
+                  <span>排序：{{ account.sortOrder }}</span>
+                  <span>{{ account.institutionName || account.remark || "无补充信息" }}</span>
+                </div>
+
+                <div class="button-row">
+                  <button class="ghost-button small-button" type="button" @click="openEditAccountForm(account)">编辑</button>
+                  <button
+                    class="danger-button small-button"
+                    type="button"
+                    :disabled="deletingAccountId === account.id"
+                    @click="deleteAccount(account.id)"
+                  >
+                    {{ deletingAccountId === account.id ? "删除中..." : "删除" }}
+                  </button>
+                </div>
+              </article>
+            </div>
+          </div>
         </section>
       </template>
 
@@ -1031,6 +1333,10 @@ function formTone(account) {
             </div>
           </div>
 
+          <div class="account-editor-clean">
+            <AccountEditor :account-form="accountForm" :summary-parent-options="summaryParentOptions" />
+          </div>
+
           <div class="form-grid">
             <label class="field">
               <span>账户编码</span>
@@ -1042,7 +1348,28 @@ function formTone(account) {
             </label>
             <label class="field">
               <span>账户类型</span>
+              <select v-model="accountForm.categoryGroup">
+                <option value="CASH">CASH</option>
+                <option value="INVESTMENT">INVESTMENT</option>
+                <option value="LIABILITY">LIABILITY</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>账户类型</span>
               <input v-model="accountForm.accountType" type="text" />
+            </label>
+            <label class="field">
+              <span>父账户</span>
+              <select v-model="accountForm.parentAccountId" :disabled="accountForm.summaryAccount">
+                <option value="">无</option>
+                <option v-for="account in summaryParentOptions" :key="account.id" :value="String(account.id)">
+                  {{ account.accountName }}
+                </option>
+              </select>
+            </label>
+            <label class="field switch-field">
+              <span>汇总账户</span>
+              <input v-model="accountForm.summaryAccount" type="checkbox" />
             </label>
             <label class="field">
               <span>方向</span>

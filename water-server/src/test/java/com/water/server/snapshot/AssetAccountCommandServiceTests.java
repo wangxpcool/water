@@ -36,7 +36,10 @@ class AssetAccountCommandServiceTests {
         AssetAccountOptionDto created = assetAccountCommandService.createAccount(new AssetAccountUpsertRequest(
                 "TEST_CASH",
                 "测试现金账户",
+                "CASH",
                 "EWALLET",
+                null,
+                false,
                 "ASSET",
                 "CNY",
                 "测试机构",
@@ -47,11 +50,15 @@ class AssetAccountCommandServiceTests {
         ));
 
         assertEquals("TEST_CASH", created.accountCode());
+        assertEquals("CASH", created.categoryGroup());
 
         AssetAccountOptionDto updated = assetAccountCommandService.updateAccount(created.id(), new AssetAccountUpsertRequest(
                 "TEST_CASH_2",
                 "测试现金账户2",
+                "CASH",
                 "BANK_CARD",
+                null,
+                false,
                 "ASSET",
                 "CNY",
                 "测试银行",
@@ -62,6 +69,7 @@ class AssetAccountCommandServiceTests {
         ));
 
         assertEquals("TEST_CASH_2", updated.accountCode());
+        assertEquals("CASH", updated.categoryGroup());
         assertEquals(false, updated.enabled());
 
         assetAccountCommandService.deleteAccount(created.id());

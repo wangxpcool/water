@@ -17,7 +17,10 @@ CREATE TABLE IF NOT EXISTS asset_account (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_code TEXT NOT NULL,
     account_name TEXT NOT NULL,
+    category_group TEXT NOT NULL,
     account_type TEXT NOT NULL,
+    parent_account_id INTEGER,
+    is_summary INTEGER NOT NULL DEFAULT 0,
     balance_direction TEXT NOT NULL,
     currency_code TEXT NOT NULL,
     institution_name TEXT,
@@ -40,6 +43,9 @@ CREATE INDEX IF NOT EXISTS idx_asset_account_direction
 
 CREATE INDEX IF NOT EXISTS idx_asset_account_currency
     ON asset_account (currency_code);
+
+CREATE INDEX IF NOT EXISTS idx_asset_account_parent
+    ON asset_account (parent_account_id);
 
 CREATE TABLE IF NOT EXISTS asset_snapshot (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,26 +106,3 @@ INSERT OR IGNORE INTO currency_config (
     ('CNY', '人民币', '¥', 2, '中国大陆常用币种', 1),
     ('HKD', '港币', 'HK$', 2, '香港常用币种', 1),
     ('USD', '美元', '$', 2, '美股账户常用币种', 1);
-
-INSERT OR IGNORE INTO asset_account (
-    account_code,
-    account_name,
-    account_type,
-    balance_direction,
-    currency_code,
-    institution_name,
-    owner_name,
-    remark,
-    sort_order,
-    enabled
-) VALUES
-    ('ALIPAY', '支付宝', 'EWALLET', 'ASSET', 'CNY', '支付宝', NULL, '日常支付账户', 10, 1),
-    ('WECHAT', '微信', 'EWALLET', 'ASSET', 'CNY', '微信支付', NULL, '日常支付账户', 20, 1),
-    ('DEFAULT_BANK_CARD', '默认银行卡', 'BANK_CARD', 'ASSET', 'CNY', '默认银行卡', NULL, '主要银行卡账户', 30, 1),
-    ('FUND_ACCOUNT', '基金账户', 'INVESTMENT', 'ASSET', 'CNY', '基金平台', NULL, '基金持仓账户', 40, 1),
-    ('A_SHARE_ACCOUNT', 'A股账户', 'INVESTMENT', 'ASSET', 'CNY', 'A股券商', NULL, 'A股投资账户', 50, 1),
-    ('US_STOCK_ACCOUNT', '美股账户', 'INVESTMENT', 'ASSET', 'USD', '美股券商', NULL, '美股投资账户', 60, 1),
-    ('CREDIT_CARD_DUE', '待还信用卡', 'CREDIT_CARD', 'DEBT', 'CNY', '信用卡账户', NULL, '待还信用卡余额', 70, 1),
-    ('RECEIVABLES', '未收欠款', 'RECEIVABLE', 'ASSET', 'CNY', '个人往来', NULL, '外部应收款项', 80, 1),
-    ('INVESTMENT_LOSS', '投资总损失', 'LOSS', 'DEBT', 'CNY', '投资汇总', NULL, '累计投资亏损记录账户', 90, 1),
-    ('HOUSING_FUND', '公积金账户', 'HOUSING_FUND', 'ASSET', 'CNY', '公积金中心', NULL, '住房公积金账户', 100, 1);

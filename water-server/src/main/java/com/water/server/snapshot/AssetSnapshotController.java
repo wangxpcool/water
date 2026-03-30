@@ -44,7 +44,7 @@ public class AssetSnapshotController {
 
     @GetMapping("/accounts")
     public List<AssetAccountOptionDto> listAccounts() {
-        return assetSnapshotQueryService.findEnabledAccounts();
+        return assetSnapshotQueryService.findEnabledLeafAccounts();
     }
 
     @PostMapping
