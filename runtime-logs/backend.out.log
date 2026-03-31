@@ -1799,3 +1799,181 @@ WHERE snapshot_id = ?
        enabled
 FROM asset_account
  ORDER BY sort_order ASC, id ASC]
+2026-03-30T17:33:59.636+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-2] o.s.jdbc.core.JdbcTemplate               : Executing SQL query [SELECT id
+FROM asset_snapshot
+ORDER BY snapshot_date DESC, id DESC
+LIMIT 1
+]
+2026-03-30T17:33:59.636+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-4] o.s.jdbc.core.JdbcTemplate               : Executing SQL query [SELECT id,
+       snapshot_date,
+       income,
+       fixed_expense,
+       cash_total,
+       investment_total,
+       liability_total,
+       gross_account_value,
+       profit_loss,
+       net_worth,
+       public_funds,
+       extra_amount,
+       balance,
+       note,
+       remark,
+       source_row_number
+FROM asset_snapshot
+ORDER BY snapshot_date DESC, id DESC
+]
+2026-03-30T17:33:59.637+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-2] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL query
+2026-03-30T17:33:59.638+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-2] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL statement [SELECT account_id, amount
+FROM asset_snapshot_detail
+WHERE snapshot_id = ?
+]
+2026-03-30T17:33:59.638+08:00 TRACE 2612 --- [water-server] [nio-8080-exec-2] o.s.jdbc.core.StatementCreatorUtils      : Setting SQL statement parameter value: column index 1, parameter value [118], value class [java.lang.Long], SQL type unknown
+2026-03-30T17:33:59.638+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-4] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL query
+2026-03-30T17:33:59.638+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-2] o.s.jdbc.core.JdbcTemplate               : Executing SQL query [SELECT id,
+       account_code,
+       account_name,
+       category_group,
+       account_type,
+       parent_account_id,
+       is_summary,
+       balance_direction,
+       currency_code,
+       institution_name,
+       owner_name,
+       remark,
+       sort_order,
+       enabled
+FROM asset_account
+ WHERE enabled = 1 AND is_summary = 0 ORDER BY sort_order ASC, id ASC]
+2026-03-30T17:33:59.638+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-4] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL statement [SELECT d.snapshot_id,
+       a.account_code,
+       a.account_name,
+       a.category_group,
+       a.account_type,
+       a.parent_account_id,
+       a.is_summary,
+       a.balance_direction,
+       d.currency_code,
+       d.amount,
+       d.original_amount,
+       d.remark
+FROM asset_snapshot_detail d
+JOIN asset_account a ON a.id = d.account_id
+ ORDER BY d.snapshot_id DESC, a.sort_order ASC, d.id ASC]
+2026-03-30T17:33:59.831+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-3] o.s.jdbc.core.JdbcTemplate               : Executing SQL query [SELECT id
+FROM asset_snapshot
+ORDER BY snapshot_date DESC, id DESC
+LIMIT 1
+]
+2026-03-30T17:33:59.832+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-3] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL query
+2026-03-30T17:33:59.832+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-3] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL statement [SELECT account_id, amount
+FROM asset_snapshot_detail
+WHERE snapshot_id = ?
+]
+2026-03-30T17:33:59.832+08:00 TRACE 2612 --- [water-server] [nio-8080-exec-3] o.s.jdbc.core.StatementCreatorUtils      : Setting SQL statement parameter value: column index 1, parameter value [118], value class [java.lang.Long], SQL type unknown
+2026-03-30T17:33:59.833+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-3] o.s.jdbc.core.JdbcTemplate               : Executing SQL query [SELECT id,
+       account_code,
+       account_name,
+       category_group,
+       account_type,
+       parent_account_id,
+       is_summary,
+       balance_direction,
+       currency_code,
+       institution_name,
+       owner_name,
+       remark,
+       sort_order,
+       enabled
+FROM asset_account
+ ORDER BY sort_order ASC, id ASC]
+2026-03-30T18:17:50.025+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-1] o.s.jdbc.core.JdbcTemplate               : Executing SQL query [SELECT id
+FROM asset_snapshot
+ORDER BY snapshot_date DESC, id DESC
+LIMIT 1
+]
+2026-03-30T18:17:50.025+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-5] o.s.jdbc.core.JdbcTemplate               : Executing SQL query [SELECT id,
+       snapshot_date,
+       income,
+       fixed_expense,
+       cash_total,
+       investment_total,
+       liability_total,
+       gross_account_value,
+       profit_loss,
+       net_worth,
+       public_funds,
+       extra_amount,
+       balance,
+       note,
+       remark,
+       source_row_number
+FROM asset_snapshot
+ORDER BY snapshot_date DESC, id DESC
+]
+2026-03-30T18:17:50.027+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-1] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL query
+2026-03-30T18:17:50.027+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-1] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL statement [SELECT account_id, amount
+FROM asset_snapshot_detail
+WHERE snapshot_id = ?
+]
+2026-03-30T18:17:50.027+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-5] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL query
+2026-03-30T18:17:50.027+08:00 TRACE 2612 --- [water-server] [nio-8080-exec-1] o.s.jdbc.core.StatementCreatorUtils      : Setting SQL statement parameter value: column index 1, parameter value [118], value class [java.lang.Long], SQL type unknown
+2026-03-30T18:17:50.027+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-5] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL statement [SELECT d.snapshot_id,
+       a.account_code,
+       a.account_name,
+       a.category_group,
+       a.account_type,
+       a.parent_account_id,
+       a.is_summary,
+       a.balance_direction,
+       d.currency_code,
+       d.amount,
+       d.original_amount,
+       d.remark
+FROM asset_snapshot_detail d
+JOIN asset_account a ON a.id = d.account_id
+ ORDER BY d.snapshot_id DESC, a.sort_order ASC, d.id ASC]
+2026-03-30T18:17:50.028+08:00 DEBUG 2612 --- [water-server] [nio-8080-exec-1] o.s.jdbc.core.JdbcTemplate               : Executing SQL query [SELECT id,
+       account_code,
+       account_name,
+       category_group,
+       account_type,
+       parent_account_id,
+       is_summary,
+       balance_direction,
+       currency_code,
+       institution_name,
+       owner_name,
+       remark,
+       sort_order,
+       enabled
+FROM asset_account
+ WHERE enabled = 1 AND is_summary = 0 ORDER BY sort_order ASC, id ASC]
+2026-03-30T18:17:50.212+08:00 DEBUG 2612 --- [water-server] [io-8080-exec-10] o.s.jdbc.core.JdbcTemplate               : Executing SQL query [SELECT id
+FROM asset_snapshot
+ORDER BY snapshot_date DESC, id DESC
+LIMIT 1
+]
+2026-03-30T18:17:50.213+08:00 DEBUG 2612 --- [water-server] [io-8080-exec-10] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL query
+2026-03-30T18:17:50.214+08:00 DEBUG 2612 --- [water-server] [io-8080-exec-10] o.s.jdbc.core.JdbcTemplate               : Executing prepared SQL statement [SELECT account_id, amount
+FROM asset_snapshot_detail
+WHERE snapshot_id = ?
+]
+2026-03-30T18:17:50.214+08:00 TRACE 2612 --- [water-server] [io-8080-exec-10] o.s.jdbc.core.StatementCreatorUtils      : Setting SQL statement parameter value: column index 1, parameter value [118], value class [java.lang.Long], SQL type unknown
+2026-03-30T18:17:50.214+08:00 DEBUG 2612 --- [water-server] [io-8080-exec-10] o.s.jdbc.core.JdbcTemplate               : Executing SQL query [SELECT id,
+       account_code,
+       account_name,
+       category_group,
+       account_type,
+       parent_account_id,
+       is_summary,
+       balance_direction,
+       currency_code,
+       institution_name,
+       owner_name,
+       remark,
+       sort_order,
+       enabled
+FROM asset_account
+ ORDER BY sort_order ASC, id ASC]

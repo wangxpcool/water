@@ -13,6 +13,8 @@ public record AssetSnapshotDetailDto(
         String currencyCode,
         BigDecimal amount,
         BigDecimal originalAmount,
+        String amountSource,
+        Boolean computed,
         String remark
 ) {
 }

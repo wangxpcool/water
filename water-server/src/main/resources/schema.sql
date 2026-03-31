@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS asset_snapshot_detail (
     amount NUMERIC NOT NULL,
     original_amount NUMERIC,
     currency_code TEXT NOT NULL,
+    amount_source TEXT NOT NULL DEFAULT 'MANUAL',
+    is_computed INTEGER NOT NULL DEFAULT 0,
     remark TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -103,6 +105,6 @@ INSERT OR IGNORE INTO currency_config (
     remark,
     enabled
 ) VALUES
-    ('CNY', '人民币', '¥', 2, '中国大陆常用币种', 1),
-    ('HKD', '港币', 'HK$', 2, '香港常用币种', 1),
-    ('USD', '美元', '$', 2, '美股账户常用币种', 1);
+    ('CNY', 'Chinese Yuan', 'CNY', 2, 'Default RMB currency', 1),
+    ('HKD', 'Hong Kong Dollar', 'HK$', 2, 'Hong Kong dollar currency', 1),
+    ('USD', 'US Dollar', '$', 2, 'US dollar currency', 1);

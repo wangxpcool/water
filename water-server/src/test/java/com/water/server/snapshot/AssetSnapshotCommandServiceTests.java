@@ -61,6 +61,16 @@ class AssetSnapshotCommandServiceTests {
         assertEquals(new BigDecimal("113.3"), created.grossAccountValue());
         assertEquals(new BigDecimal("83.3"), created.netWorth());
         assertTrue(created.details().stream().anyMatch(detail -> detail.accountCode().equals("BANK_CARDS")));
+        assertTrue(created.details().stream().anyMatch(detail ->
+                detail.accountCode().equals("BANK_CARDS")
+                        && Boolean.TRUE.equals(detail.computed())
+                        && "ROLLED_UP".equals(detail.amountSource())
+        ));
+        assertTrue(created.details().stream().anyMatch(detail ->
+                detail.accountCode().equals("DEFAULT_BANK_CARD")
+                        && Boolean.FALSE.equals(detail.computed())
+                        && "MANUAL".equals(detail.amountSource())
+        ));
 
         AssetSnapshotResponse updated = assetSnapshotCommandService.updateSnapshot(created.id(), new AssetSnapshotUpsertRequest(
                 LocalDate.of(2026, 3, 24),

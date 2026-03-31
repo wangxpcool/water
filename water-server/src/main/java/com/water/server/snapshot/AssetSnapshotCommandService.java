@@ -165,6 +165,8 @@ public class AssetSnapshotCommandService {
                     detail.amount(),
                     detail.originalAmount(),
                     normalizeCurrencyCode(detail.currencyCode(), account.currencyCode()),
+                    "MANUAL",
+                    false,
                     blankToNull(detail.remark())
             ));
         }
@@ -271,7 +273,15 @@ public class AssetSnapshotCommandService {
             return null;
         }
 
-        PersistedDetail summary = new PersistedDetail(account.id(), sum, null, account.currencyCode(), null);
+        PersistedDetail summary = new PersistedDetail(
+                account.id(),
+                sum,
+                null,
+                account.currencyCode(),
+                "ROLLED_UP",
+                true,
+                null
+        );
         persistedByAccountId.put(account.id(), summary);
         return summary;
     }
@@ -288,9 +298,11 @@ public class AssetSnapshotCommandService {
                     amount,
                     original_amount,
                     currency_code,
+                    amount_source,
+                    is_computed,
                     remark,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """, details, details.size(), (ps, detail) -> {
             ps.setLong(1, snapshotId);
             ps.setLong(2, detail.accountId());
@@ -301,7 +313,9 @@ public class AssetSnapshotCommandService {
                 ps.setBigDecimal(4, detail.originalAmount());
             }
             ps.setString(5, detail.currencyCode());
-            ps.setString(6, detail.remark());
+            ps.setString(6, detail.amountSource());
+            ps.setInt(7, detail.computed() ? 1 : 0);
+            ps.setString(8, detail.remark());
         });
     }
 
@@ -369,6 +383,8 @@ public class AssetSnapshotCommandService {
             BigDecimal amount,
             BigDecimal originalAmount,
             String currencyCode,
+            String amountSource,
+            boolean computed,
             String remark
     ) {
     }

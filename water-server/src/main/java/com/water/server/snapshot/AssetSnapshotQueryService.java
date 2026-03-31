@@ -231,6 +231,8 @@ public class AssetSnapshotQueryService {
                        d.currency_code,
                        d.amount,
                        d.original_amount,
+                       d.amount_source,
+                       d.is_computed,
                        d.remark
                 FROM asset_snapshot_detail d
                 JOIN asset_account a ON a.id = d.account_id
@@ -259,6 +261,8 @@ public class AssetSnapshotQueryService {
                             row.currencyCode(),
                             row.amount(),
                             row.originalAmount(),
+                            row.amountSource(),
+                            row.computed(),
                             row.remark()
                     ));
         }
@@ -299,6 +303,8 @@ public class AssetSnapshotQueryService {
                 rs.getString("currency_code"),
                 rs.getBigDecimal("amount"),
                 rs.getBigDecimal("original_amount"),
+                rs.getString("amount_source"),
+                rs.getInt("is_computed") == 1,
                 rs.getString("remark")
         );
     }
@@ -371,6 +377,8 @@ public class AssetSnapshotQueryService {
             String currencyCode,
             BigDecimal amount,
             BigDecimal originalAmount,
+            String amountSource,
+            Boolean computed,
             String remark
     ) {
     }

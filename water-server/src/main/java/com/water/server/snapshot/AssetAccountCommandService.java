@@ -35,24 +35,25 @@ public class AssetAccountCommandService {
 
         try {
             jdbcTemplate.update(connection -> {
-                PreparedStatement statement = connection.prepareStatement("""
-                        INSERT INTO asset_account (
-                            account_code,
-                            account_name,
-                            category_group,
-                            account_type,
-                            parent_account_id,
-                            is_summary,
-                            balance_direction,
-                            currency_code,
-                            institution_name,
-                            owner_name,
-                        remark,
-                        sort_order,
-                        enabled,
-                        updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                        """, Statement.RETURN_GENERATED_KEYS);
+                PreparedStatement statement = connection.prepareStatement(
+                        "INSERT INTO asset_account (" +
+                                "account_code, " +
+                                "account_name, " +
+                                "category_group, " +
+                                "account_type, " +
+                                "parent_account_id, " +
+                                "is_summary, " +
+                                "balance_direction, " +
+                                "currency_code, " +
+                                "institution_name, " +
+                                "owner_name, " +
+                                "remark, " +
+                                "sort_order, " +
+                                "enabled, " +
+                                "updated_at" +
+                                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                        Statement.RETURN_GENERATED_KEYS
+                );
                 bindStatement(statement, request);
                 return statement;
             }, keyHolder);
@@ -72,24 +73,24 @@ public class AssetAccountCommandService {
         assertAccountExists(id);
         validateParentAccount(id, request);
         try {
-            int updated = jdbcTemplate.update("""
-                    UPDATE asset_account
-                    SET account_code = ?,
-                        account_name = ?,
-                        category_group = ?,
-                        account_type = ?,
-                        parent_account_id = ?,
-                        is_summary = ?,
-                        balance_direction = ?,
-                        currency_code = ?,
-                        institution_name = ?,
-                        owner_name = ?,
-                        remark = ?,
-                        sort_order = ?,
-                        enabled = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                    """, ps -> {
+            int updated = jdbcTemplate.update(
+                    "UPDATE asset_account " +
+                            "SET account_code = ?, " +
+                            "account_name = ?, " +
+                            "category_group = ?, " +
+                            "account_type = ?, " +
+                            "parent_account_id = ?, " +
+                            "is_summary = ?, " +
+                            "balance_direction = ?, " +
+                            "currency_code = ?, " +
+                            "institution_name = ?, " +
+                            "owner_name = ?, " +
+                            "remark = ?, " +
+                            "sort_order = ?, " +
+                            "enabled = ?, " +
+                            "updated_at = CURRENT_TIMESTAMP " +
+                            "WHERE id = ?",
+                    ps -> {
                 bindStatement(ps, request);
                 ps.setLong(14, id);
             });
