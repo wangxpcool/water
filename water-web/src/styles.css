@@ -35,6 +35,17 @@ select {
   font: inherit;
 }
 
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 button {
   cursor: pointer;
 }
@@ -49,6 +60,10 @@ button {
   margin: 0 auto;
   display: grid;
   gap: 22px;
+}
+
+.layout.layout-wide {
+  width: min(1720px, 100%);
 }
 
 .hero-card,
@@ -238,40 +253,89 @@ label {
 .snapshot-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .snapshot-item {
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(16, 33, 39, 0.06);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(16, 33, 39, 0.08);
+  box-shadow: 0 12px 30px rgba(16, 33, 39, 0.06);
   overflow: hidden;
 }
 
 .snapshot-row {
   width: 100%;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
   align-items: center;
-  padding: 16px 20px;
+  padding: 20px 22px;
   border: 0;
   background: transparent;
   cursor: pointer;
+  text-align: left;
 }
 
 .snapshot-row:hover {
-  background: rgba(16, 33, 39, 0.02);
+  background: rgba(16, 33, 39, 0.025);
+}
+
+.snapshot-row-main,
+.snapshot-row-side,
+.snapshot-row-title {
+  display: grid;
+  gap: 8px;
+}
+
+.snapshot-row-title {
+  grid-auto-flow: column;
+  justify-content: start;
+  align-items: center;
+  gap: 10px;
+}
+
+.snapshot-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.snapshot-row-meta span,
+.snapshot-row-tag,
+.snapshot-expand-indicator,
+.snapshot-networth-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.snapshot-row-meta span,
+.snapshot-row-tag {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(16, 33, 39, 0.06);
+  font-weight: 600;
+}
+
+.snapshot-row-side {
+  justify-items: end;
+  min-width: 180px;
+}
+
+.snapshot-expand-indicator {
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .snapshot-date {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 700;
+  color: #102127;
 }
 
 .snapshot-networth {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 28px;
+  font-weight: 800;
 }
 
 .snapshot-toolbar {
@@ -288,7 +352,7 @@ label {
 }
 
 .snapshot-detail {
-  padding: 0 20px 20px;
+  padding: 0 22px 22px;
   border-top: 1px solid rgba(16, 33, 39, 0.06);
 }
 
@@ -311,8 +375,11 @@ label {
 }
 
 .detail-summary {
-  padding: 12px 0 16px;
+  padding: 16px 0 18px;
   border-bottom: 1px solid rgba(16, 33, 39, 0.04);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .editor-summary,
@@ -333,6 +400,10 @@ label {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(16, 33, 39, 0.06);
 }
 
 .item-label {
@@ -466,6 +537,21 @@ label {
   font-size: 14px;
 }
 
+.form-inline-note,
+.detail-note {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.form-inline-note {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(16, 33, 39, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
 .field span {
   color: var(--text-muted);
   font-weight: 700;
@@ -530,6 +616,517 @@ label {
 .account-list-panel {
   display: grid;
   gap: 18px;
+}
+
+.account-page-intro {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.account-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.account-group-block {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(16, 33, 39, 0.08);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.account-group-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.account-group-header p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.account-root-list {
+  display: grid;
+  gap: 10px;
+}
+
+.account-simple-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(16, 33, 39, 0.08);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.account-flat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+}
+
+.account-flat-row-child {
+  align-items: center;
+}
+
+.account-title-block {
+  min-width: 180px;
+}
+
+.account-title-block h3 {
+  margin: 6px 0 4px;
+  font-size: 17px;
+}
+
+.account-title-block p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.account-meta-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.account-meta-inline {
+  flex: 1;
+}
+
+.account-meta-pills span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(16, 33, 39, 0.06);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.account-meta-pills.compact span {
+  padding: 5px 9px;
+}
+
+.account-child-list {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(16, 33, 39, 0.12);
+}
+
+.account-child-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(245, 247, 245, 0.9);
+}
+
+.account-child-head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: 180px;
+}
+
+.account-child-head strong {
+  font-size: 14px;
+}
+
+.account-child-head span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.record-entry-shell {
+  display: grid;
+  gap: 14px;
+}
+
+.record-entry-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+}
+
+.record-entry-title h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.record-entry-title p:last-child {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.record-entry-actions {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+}
+
+.record-entry-actions .field {
+  min-width: 172px;
+}
+
+.record-last-date {
+  display: grid;
+  gap: 4px;
+  min-width: 132px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(16, 33, 39, 0.08);
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.record-last-date span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.record-last-date strong {
+  font-size: 15px;
+}
+
+.record-date-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: auto;
+}
+
+.record-date-field span {
+  white-space: nowrap;
+  margin: 0;
+}
+
+.record-date-field input {
+  min-width: 148px;
+  padding: 9px 12px;
+}
+
+.record-entry-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.record-summary-card {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(16, 33, 39, 0.08);
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.record-summary-card span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.record-summary-card strong {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.record-summary-delta {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.35;
+}
+
+.record-summary-delta.positive {
+  color: var(--positive);
+}
+
+.record-summary-delta.negative {
+  color: var(--negative);
+}
+
+.record-summary-card[data-tone="cash"] {
+  background: linear-gradient(180deg, rgba(234, 245, 239, 0.95), rgba(255, 255, 255, 0.88));
+}
+
+.record-summary-card[data-tone="investment"] {
+  background: linear-gradient(180deg, rgba(255, 242, 225, 0.95), rgba(255, 255, 255, 0.88));
+}
+
+.record-summary-card[data-tone="debt"] {
+  background: linear-gradient(180deg, rgba(250, 232, 228, 0.95), rgba(255, 255, 255, 0.88));
+}
+
+.record-summary-card[data-tone="networth"] {
+  background: linear-gradient(180deg, rgba(228, 239, 245, 0.95), rgba(255, 255, 255, 0.88));
+}
+
+.record-entry-note-inline {
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(16, 33, 39, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.record-entry-groups {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+}
+
+.record-group-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(16, 33, 39, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.record-group-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 12px;
+}
+
+.record-group-head h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.record-group-head p {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.record-group-head strong {
+  font-size: 18px;
+}
+
+.record-parent-list {
+  display: grid;
+  gap: 10px;
+}
+
+.record-parent-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(16, 33, 39, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.record-parent-card.expanded {
+  border-color: rgba(17, 50, 58, 0.16);
+  box-shadow: 0 10px 24px rgba(17, 50, 58, 0.06);
+}
+
+.record-parent-toggle,
+.record-single-row,
+.record-child-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) auto minmax(160px, 220px);
+  gap: 12px;
+  align-items: center;
+}
+
+.record-parent-toggle {
+  width: 100%;
+}
+
+.record-parent-trigger {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  grid-column: 1 / 3;
+}
+
+.record-parent-head {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.record-parent-title,
+.record-parent-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.record-parent-title strong {
+  font-size: 15px;
+}
+
+.record-parent-title-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.record-parent-title span,
+.record-parent-meta span,
+.record-parent-arrow,
+.record-currency-chip {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.record-parent-meta span,
+.record-currency-chip {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(16, 33, 39, 0.06);
+  font-weight: 600;
+}
+
+.record-parent-arrow {
+  justify-self: end;
+  font-weight: 700;
+}
+
+.record-parent-total {
+  display: grid;
+  width: 100%;
+  justify-items: end;
+  grid-column: 3;
+  min-width: 160px;
+  gap: 6px;
+}
+
+.record-parent-total span {
+  color: var(--text-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.record-parent-total strong {
+  font-size: 15px;
+  color: #102127;
+}
+
+.record-single-row {
+  padding: 2px 0;
+}
+
+.record-parent-remark-wrap {
+  display: block;
+}
+
+.record-remark-toggle {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.record-remark-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.record-parent-remark {
+  padding-top: 0;
+}
+
+.record-child-list {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(16, 33, 39, 0.12);
+}
+
+.record-child-row {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(244, 247, 246, 0.95);
+}
+
+.record-account-cell {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.1;
+}
+
+.record-account-cell strong {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.1;
+}
+
+.record-account-cell span {
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.record-delta,
+.record-account-delta {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.record-delta.positive,
+.record-account-delta.positive {
+  color: var(--positive);
+}
+
+.record-delta.negative,
+.record-account-delta.negative {
+  color: var(--negative);
+}
+
+.record-account-delta {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+
+.record-amount-input {
+  width: 100%;
+  border: 1px solid rgba(16, 33, 39, 0.12);
+  border-radius: 12px;
+  padding: 8px 10px;
+  text-align: right;
+  background: rgba(247, 248, 247, 0.95);
+  color: #102127;
+  font-weight: 700;
+}
+
+.record-amount-input:focus {
+  outline: none;
+  border-color: rgba(17, 50, 58, 0.28);
+  box-shadow: 0 0 0 4px rgba(17, 50, 58, 0.08);
 }
 
 .account-filter-bar {
@@ -746,6 +1343,10 @@ label {
   font-weight: 800;
 }
 
+.detail-note {
+  margin: 0;
+}
+
 .positive {
   color: var(--positive);
 }
@@ -759,11 +1360,20 @@ label {
   .snapshot-stats-grid,
   .detail-grid,
   .form-grid,
-  .editor-detail-grid {
+  .editor-detail-grid,
+  .detail-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .editor-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .record-entry-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .record-entry-groups {
     grid-template-columns: 1fr;
   }
 
@@ -791,7 +1401,46 @@ label {
     grid-template-columns: 1fr;
     display: grid;
   }
-}
+
+  .record-entry-top,
+  .record-group-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .snapshot-row {
+    grid-template-columns: 1fr;
+  }
+
+  .snapshot-row-side {
+    justify-items: start;
+    min-width: 0;
+  }
+
+  .record-entry-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .record-parent-toggle,
+  .record-single-row,
+  .record-child-row {
+    grid-template-columns: 1fr;
+  }
+
+  .record-parent-trigger {
+    grid-template-columns: 1fr;
+  }
+
+  .record-parent-total {
+    justify-items: start;
+  }
+
+  .record-parent-arrow {
+    justify-self: start;
+  }
+  }
 
 @media (max-width: 640px) {
   .page-shell {
@@ -808,12 +1457,17 @@ label {
   .snapshot-stats-grid,
   .detail-grid,
   .form-grid,
-  .editor-detail-grid {
+  .editor-detail-grid,
+  .detail-summary {
     grid-template-columns: 1fr;
   }
 
   .account-filter-bar,
   .account-list-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .record-entry-summary {
     grid-template-columns: 1fr;
   }
 
@@ -833,8 +1487,34 @@ label {
     text-align: left;
   }
 
+  .account-simple-head,
+  .account-child-head,
+  .record-entry-top,
+  .record-group-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .account-flat-row,
+  .account-flat-row-child {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .account-title-block,
+  .account-child-head,
+  .account-meta-inline {
+    min-width: 0;
+    width: 100%;
+  }
+
   .detail-stats {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .snapshot-row-title {
+    grid-auto-flow: row;
+    justify-content: start;
   }
 
   .metric-card strong,

@@ -334,6 +334,12 @@ public class AssetSnapshotQueryService {
         if (value == null) {
             return null;
         }
+        if (value instanceof String stringValue) {
+            if (stringValue.isBlank()) {
+                return null;
+            }
+            return Long.parseLong(stringValue);
+        }
         return ((Number) value).longValue();
     }
 

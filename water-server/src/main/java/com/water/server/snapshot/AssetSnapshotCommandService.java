@@ -181,7 +181,7 @@ public class AssetSnapshotCommandService {
         BigDecimal grossAccountValue = BigDecimal.ZERO;
 
         for (AssetAccountOptionDto account : accounts) {
-            if (Boolean.TRUE.equals(account.summaryAccount())) {
+            if (account.parentAccountId() != null) {
                 continue;
             }
             PersistedDetail detail = persistedByAccountId.get(account.id());
@@ -236,9 +236,6 @@ public class AssetSnapshotCommandService {
             AssetAccountOptionDto account = accountMap.get(accountCode);
             if (account == null) {
                 throw new ResponseStatusException(CONFLICT, "Unknown accountCode: " + detail.accountCode());
-            }
-            if (Boolean.TRUE.equals(account.summaryAccount())) {
-                throw new ResponseStatusException(CONFLICT, "Summary account cannot accept manual amount: " + account.accountCode());
             }
         }
 

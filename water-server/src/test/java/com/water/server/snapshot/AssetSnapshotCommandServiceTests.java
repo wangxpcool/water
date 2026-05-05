@@ -60,17 +60,12 @@ class AssetSnapshotCommandServiceTests {
         assertEquals(new BigDecimal("30"), created.liabilityTotal());
         assertEquals(new BigDecimal("113.3"), created.grossAccountValue());
         assertEquals(new BigDecimal("83.3"), created.netWorth());
-        assertTrue(created.details().stream().anyMatch(detail -> detail.accountCode().equals("BANK_CARDS")));
-        assertTrue(created.details().stream().anyMatch(detail ->
-                detail.accountCode().equals("BANK_CARDS")
-                        && Boolean.TRUE.equals(detail.computed())
-                        && "ROLLED_UP".equals(detail.amountSource())
-        ));
         assertTrue(created.details().stream().anyMatch(detail ->
                 detail.accountCode().equals("DEFAULT_BANK_CARD")
                         && Boolean.FALSE.equals(detail.computed())
                         && "MANUAL".equals(detail.amountSource())
         ));
+        assertFalse(created.details().stream().anyMatch(detail -> Boolean.TRUE.equals(detail.computed())));
 
         AssetSnapshotResponse updated = assetSnapshotCommandService.updateSnapshot(created.id(), new AssetSnapshotUpsertRequest(
                 LocalDate.of(2026, 3, 24),
@@ -96,6 +91,12 @@ class AssetSnapshotCommandServiceTests {
         assertEquals(new BigDecimal("4"), updated.liabilityTotal());
         assertEquals(new BigDecimal("106.6"), updated.grossAccountValue());
         assertEquals(new BigDecimal("102.6"), updated.netWorth());
+        assertTrue(updated.details().stream().anyMatch(detail ->
+                detail.accountCode().equals("HOUSING_FUND")
+                        && Boolean.FALSE.equals(detail.computed())
+                        && "MANUAL".equals(detail.amountSource())
+                        && "reserve".equals(detail.remark())
+        ));
 
         assetSnapshotCommandService.deleteSnapshot(created.id());
 

@@ -35,9 +35,6 @@ public class AssetSchemaMigration implements ApplicationRunner {
 
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_asset_account_group ON asset_account (category_group)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_asset_account_parent ON asset_account (parent_account_id)");
-
-        ensureBankCardSummaryAccount();
-        attachDefaultBankCardToSummary();
     }
 
     private void ensureAccountColumn(String columnName, String ddl) {
@@ -120,71 +117,6 @@ public class AssetSchemaMigration implements ApplicationRunner {
                     account.enabled()
             );
         }
-    }
-
-    private void ensureBankCardSummaryAccount() {
-        Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(1) FROM asset_account WHERE account_code = 'BANK_CARDS'",
-                Integer.class
-        );
-        if (count != null && count > 0) {
-            return;
-        }
-
-        jdbcTemplate.update(
-                """
-                INSERT INTO asset_account (
-                    account_code,
-                    account_name,
-                    category_group,
-                    account_type,
-                    parent_account_id,
-                    is_summary,
-                    balance_direction,
-                    currency_code,
-                    institution_name,
-                    owner_name,
-                    remark,
-                    sort_order,
-                    enabled,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                "BANK_CARDS",
-                "Bank Cards",
-                "CASH",
-                "BANK_CARD_GROUP",
-                null,
-                1,
-                "ASSET",
-                "CNY",
-                "Bank Card Summary",
-                null,
-                "Auto-summed bank card parent account",
-                25,
-                1
-        );
-    }
-
-    private void attachDefaultBankCardToSummary() {
-        Long bankCardsId = jdbcTemplate.query(
-                "SELECT id FROM asset_account WHERE account_code = 'BANK_CARDS'",
-                (rs, rowNum) -> rs.getLong("id")
-        ).stream().findFirst().orElse(null);
-        if (bankCardsId == null) {
-            return;
-        }
-
-        jdbcTemplate.update(
-                """
-                UPDATE asset_account
-                SET parent_account_id = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE account_code = 'DEFAULT_BANK_CARD'
-                  AND (parent_account_id IS NULL OR parent_account_id = 0)
-                """,
-                bankCardsId
-        );
     }
 
     private List<AccountTemplate> defaultAccounts() {

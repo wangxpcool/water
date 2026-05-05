@@ -23,27 +23,27 @@ defineProps({
     </label>
     <label class="field">
       <span>收入</span>
-      <input v-model="snapshotForm.income" type="number" step="0.01" />
+      <input v-model="snapshotForm.income" type="number" step="0.01" @wheel.prevent />
     </label>
     <label class="field">
       <span>固定支出</span>
-      <input v-model="snapshotForm.fixedExpense" type="number" step="0.01" />
+      <input v-model="snapshotForm.fixedExpense" type="number" step="0.01" @wheel.prevent />
     </label>
     <label class="field">
       <span>盈亏</span>
-      <input v-model="snapshotForm.profitLoss" type="number" step="0.01" />
+      <input v-model="snapshotForm.profitLoss" type="number" step="0.01" @wheel.prevent />
     </label>
     <label class="field">
       <span>公积金 / 公共资金</span>
-      <input v-model="snapshotForm.publicFunds" type="number" step="0.01" />
+      <input v-model="snapshotForm.publicFunds" type="number" step="0.01" @wheel.prevent />
     </label>
     <label class="field">
       <span>额外金额</span>
-      <input v-model="snapshotForm.extraAmount" type="number" step="0.01" />
+      <input v-model="snapshotForm.extraAmount" type="number" step="0.01" @wheel.prevent />
     </label>
     <label class="field">
       <span>余额</span>
-      <input v-model="snapshotForm.balance" type="number" step="0.01" />
+      <input v-model="snapshotForm.balance" type="number" step="0.01" @wheel.prevent />
     </label>
     <label class="field field-wide">
       <span>备注</span>
@@ -63,7 +63,7 @@ defineProps({
     <div class="summary-item">
       <span class="item-label">说明</span>
       <span class="item-value muted">
-        现金、投资、负债、账户总值和净资产会在保存时由系统自动计算。
+        现金、投资、负债、账户总值和净资产会在保存时由系统自动计算；负债类账户请填写正数，系统会自动扣减。
       </span>
     </div>
   </div>
@@ -93,8 +93,12 @@ defineProps({
 
         <label class="field compact-field">
           <span>金额</span>
-          <input v-model="detail.amount" type="number" step="0.01" />
+          <input v-model="detail.amount" type="number" step="0.01" @wheel.prevent />
         </label>
+
+        <p v-if="detail.categoryGroup === 'LIABILITY'" class="detail-note">
+          这是负债账户，金额填正数，保存后会自动从净资产中扣减。
+        </p>
       </article>
     </div>
   </div>

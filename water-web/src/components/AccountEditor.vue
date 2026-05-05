@@ -63,7 +63,7 @@ defineProps({
     </label>
     <label class="field">
       <span>排序</span>
-      <input v-model="accountForm.sortOrder" type="number" step="1" />
+      <input v-model="accountForm.sortOrder" type="number" step="1" @wheel.prevent />
     </label>
     <label class="field">
       <span>机构</span>
@@ -81,5 +81,9 @@ defineProps({
       <span>启用</span>
       <input v-model="accountForm.enabled" type="checkbox" />
     </label>
+  </div>
+
+  <div class="form-inline-note">
+    负债类账户（例如待还信用卡）请设置为 `LIABILITY + DEBT`，录入金额时填写正数，系统会在计算净资产时自动扣减。
   </div>
 </template>

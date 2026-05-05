@@ -2,16 +2,16 @@ spring:
   application:
     name: water-server
   datasource:
-    url: jdbc:sqlite:${WATER_DB_PATH:../water.db}
+    url: jdbc:sqlite:${WATER_DB_PATH:../water/water.db}
     driver-class-name: org.sqlite.JDBC
   sql:
     init:
-      mode: always
+      mode: never
 
 server:
   port: 8080
 
 logging:
   level:
-    org.springframework.jdbc.core.JdbcTemplate: DEBUG
-    org.springframework.jdbc.core.StatementCreatorUtils: TRACE
+    org.springframework.jdbc.core.JdbcTemplate: INFO
+    org.springframework.jdbc.core.StatementCreatorUtils: INFO
