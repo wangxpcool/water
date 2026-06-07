@@ -11,6 +11,7 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref("");
 const formError = ref("");
+const formSuccess = ref("");
 const currentPage = ref(resolvePageFromHash());
 
 const snapshots = ref([]);
@@ -21,6 +22,7 @@ const editingId = ref(null);
 const deletingId = ref(null);
 const netWorthChartRef = ref(null);
 let netWorthChartInstance = null;
+let formSuccessTimer = null;
 
 const snapshotForm = reactive(createEmptySnapshotForm());
 const accountListFilters = reactive(createAccountListFilters());
@@ -263,6 +265,7 @@ const recordEntryAccounts = computed(() =>
       return String(a.accountName ?? "").localeCompare(String(b.accountName ?? ""), "zh-CN");
     })
 );
+const recordEntryLeafAccounts = computed(() => recordEntryAccounts.value.filter((account) => !hasRecordEntryChildren(account)));
 const recordEntryCategoryTotals = computed(() =>
   Object.fromEntries(
     accountGroupOrder.map((group) => [
@@ -294,6 +297,37 @@ const recordEntrySummaryDeltas = computed(() => ({
   ),
   NET_WORTH: roundToSingleDecimal(recordEntryNetWorth.value - snapshotNetWorth(previousRecordSnapshot.value))
 }));
+const recordEntryChangeOverview = computed(() => {
+  const rows = recordEntryLeafAccounts.value
+    .map((account) => {
+      const currentAmount = recordEntryResolvedAmount(account);
+      const previousAmount = previousRecordAmount(account);
+      const delta = roundToSingleDecimal(currentAmount - previousAmount);
+
+      return {
+        account,
+        currentAmount,
+        previousAmount,
+        delta
+      };
+    })
+    .filter((item) => item.delta !== 0);
+
+  const increases = rows
+    .filter((item) => item.delta > 0)
+    .sort((a, b) => b.delta - a.delta);
+  const decreases = rows
+    .filter((item) => item.delta < 0)
+    .sort((a, b) => a.delta - b.delta);
+
+  return {
+    increases,
+    decreases,
+    total: recordEntryLeafAccounts.value.length,
+    changed: rows.length,
+    unchanged: Math.max(recordEntryLeafAccounts.value.length - rows.length, 0)
+  };
+});
 
 const isSnapshotCreating = computed(() => editingId.value === "new");
 const isSnapshotEditing = computed(() => editingId.value !== null);
@@ -330,6 +364,10 @@ onBeforeUnmount(() => {
   if (netWorthChartInstance) {
     netWorthChartInstance.destroy();
     netWorthChartInstance = null;
+  }
+  if (formSuccessTimer) {
+    clearTimeout(formSuccessTimer);
+    formSuccessTimer = null;
   }
 });
 
@@ -524,6 +562,18 @@ function navigateTo(page) {
     window.location.hash = "/";
   }
   formError.value = "";
+  formSuccess.value = "";
+}
+
+function showFormSuccess(message) {
+  formSuccess.value = message;
+  if (formSuccessTimer) {
+    clearTimeout(formSuccessTimer);
+  }
+  formSuccessTimer = setTimeout(() => {
+    formSuccess.value = "";
+    formSuccessTimer = null;
+  }, 2500);
 }
 
 function createEmptySnapshotForm() {
@@ -1000,6 +1050,7 @@ function buildRecordEntryPayload() {
 
 async function submitSnapshotForm() {
   formError.value = "";
+  formSuccess.value = "";
   if (!snapshotForm.snapshotDate) {
     formError.value = "快照日期不能为空";
     return;
@@ -1024,6 +1075,7 @@ async function submitSnapshotForm() {
     await loadAll();
     expandedId.value = snapshot.id;
     cancelSnapshotEditing();
+    showFormSuccess(isSnapshotCreating.value ? "新增快照成功" : "保存快照成功");
   } catch (err) {
     formError.value = err instanceof Error ? err.message : "保存失败";
   } finally {
@@ -1033,6 +1085,7 @@ async function submitSnapshotForm() {
 
 async function submitRecordEntry() {
   formError.value = "";
+  formSuccess.value = "";
   if (!recordEntryForm.snapshotDate) {
     formError.value = "记录日期不能为空";
     return;
@@ -1069,6 +1122,7 @@ async function submitRecordEntry() {
 
     await loadAll();
     formError.value = "";
+    showFormSuccess("保存记录成功");
   } catch (err) {
     formError.value = err instanceof Error ? err.message : "保存记录失败";
   } finally {
@@ -1124,6 +1178,7 @@ async function deleteSnapshot(id) {
 
   deletingId.value = id;
   formError.value = "";
+  formSuccess.value = "";
   try {
     const response = await fetch(`/api/snapshots/${id}`, { method: "DELETE" });
     if (!response.ok) {
@@ -1298,6 +1353,10 @@ function formTone(account) {
 
       <section v-if="formError" class="content-card">
         <div class="state-panel error">{{ formError }}</div>
+      </section>
+
+      <section v-if="formSuccess" class="content-card">
+        <div class="state-panel success">{{ formSuccess }}</div>
       </section>
 
       <template v-if="currentPage === SNAPSHOTS_PAGE">
@@ -1906,6 +1965,78 @@ function formTone(account) {
               />
             </label>
           </div>
+
+          <section class="record-change-overview">
+            <div class="record-change-head">
+              <div>
+                <h3>统计概览</h3>
+                <p v-if="previousRecordSnapshot">对比 {{ previousRecordDateLabel() }}，快速看本次录入的账户变化。</p>
+                <p v-else>选定日期之前暂无记录，保存下一次后这里会展示变化对比。</p>
+              </div>
+              <div v-if="previousRecordSnapshot" class="record-change-counts">
+                <span>{{ recordEntryChangeOverview.increases.length }} 项增加</span>
+                <span>{{ recordEntryChangeOverview.decreases.length }} 项减少</span>
+                <span>{{ recordEntryChangeOverview.unchanged }} 项无变化</span>
+              </div>
+            </div>
+
+            <div v-if="previousRecordSnapshot && recordEntryChangeOverview.changed > 0" class="record-change-columns">
+              <article class="record-change-column" data-tone="increase">
+                <div class="record-change-column-head">
+                  <span>增加项</span>
+                  <strong>{{ recordEntryChangeOverview.increases.length }} 项</strong>
+                </div>
+                <div v-if="recordEntryChangeOverview.increases.length > 0" class="record-change-list">
+                  <div
+                    v-for="item in recordEntryChangeOverview.increases.slice(0, 6)"
+                    :key="`increase-${item.account.accountCode}`"
+                    class="record-change-row"
+                  >
+                    <div class="record-change-account">
+                      <strong>{{ item.account.accountName }}</strong>
+                      <span>{{ categoryGroupLabel(item.account.categoryGroup) }} / {{ item.account.accountCode }}</span>
+                    </div>
+                    <div class="record-change-amount positive">
+                      +{{ formatAmount(Math.abs(item.delta)) }}
+                      <span>{{ formatAmount(item.previousAmount) }} -> {{ formatAmount(item.currentAmount) }}</span>
+                    </div>
+                  </div>
+                </div>
+                <p v-else class="record-change-empty">没有增加项</p>
+              </article>
+
+              <article class="record-change-column" data-tone="decrease">
+                <div class="record-change-column-head">
+                  <span>减少项</span>
+                  <strong>{{ recordEntryChangeOverview.decreases.length }} 项</strong>
+                </div>
+                <div v-if="recordEntryChangeOverview.decreases.length > 0" class="record-change-list">
+                  <div
+                    v-for="item in recordEntryChangeOverview.decreases.slice(0, 6)"
+                    :key="`decrease-${item.account.accountCode}`"
+                    class="record-change-row"
+                  >
+                    <div class="record-change-account">
+                      <strong>{{ item.account.accountName }}</strong>
+                      <span>{{ categoryGroupLabel(item.account.categoryGroup) }} / {{ item.account.accountCode }}</span>
+                    </div>
+                    <div class="record-change-amount negative">
+                      -{{ formatAmount(Math.abs(item.delta)) }}
+                      <span>{{ formatAmount(item.previousAmount) }} -> {{ formatAmount(item.currentAmount) }}</span>
+                    </div>
+                  </div>
+                </div>
+                <p v-else class="record-change-empty">没有减少项</p>
+              </article>
+            </div>
+
+            <div v-else-if="previousRecordSnapshot" class="record-change-empty-panel">
+              本次所有账户与上次记录一致。
+            </div>
+            <div v-else class="record-change-empty-panel">
+              暂无可对比的历史记录。
+            </div>
+          </section>
         </section>
       </template>
     </main>
