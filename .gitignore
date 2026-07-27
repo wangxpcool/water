@@ -1,2 +1,11 @@
 .worktrees/
 /water-server/target/
+/water-web/node_modules/
+/water-web/dist/
+/runtime-logs/
+/test-water.db
+*.class
+*.log
+*.db-journal
+*.db-shm
+*.db-wal
