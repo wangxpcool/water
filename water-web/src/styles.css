@@ -66,6 +66,10 @@ button {
   width: min(1720px, 100%);
 }
 
+.layout.layout-compact {
+  gap: 12px;
+}
+
 .hero-card,
 .content-card {
   background: var(--card-bg);
@@ -77,6 +81,46 @@ button {
 
 .hero-card {
   padding: 28px;
+}
+
+.hero-card-compact {
+  padding: 14px 18px;
+  border-radius: 20px;
+}
+
+.hero-card-compact .hero-top {
+  align-items: center;
+  margin-bottom: 0;
+}
+
+.hero-card-compact .eyebrow {
+  margin-bottom: 4px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+}
+
+.hero-card-compact .hero-heading {
+  align-items: center;
+  gap: 12px;
+}
+
+.hero-card-compact .hero-heading h1 {
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1;
+}
+
+.hero-card-compact .hero-heading p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.hero-card-compact .button-row {
+  gap: 8px;
+}
+
+.hero-card-compact .ghost-button {
+  padding: 8px 12px;
+  font-size: 13px;
 }
 
 .content-card {
@@ -188,6 +232,11 @@ label {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.account-list-actions {
+  justify-content: flex-end;
+  align-items: center;
 }
 
 .small-button {
@@ -676,6 +725,12 @@ label {
   gap: 14px;
 }
 
+.account-row-actions {
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 190px;
+}
+
 .account-flat-row-child {
   align-items: center;
 }
@@ -752,60 +807,67 @@ label {
 
 .record-entry-shell {
   display: grid;
-  gap: 14px;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 20px;
 }
 
 .record-entry-top {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  align-items: end;
+  gap: 12px;
+  align-items: center;
 }
 
 .record-entry-title h2 {
+  display: none;
   margin: 0;
-  font-size: 24px;
+  font-size: 18px;
 }
 
 .record-entry-title p:last-child {
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .record-entry-actions {
   display: flex;
-  gap: 10px;
-  align-items: end;
+  gap: 8px;
+  align-items: center;
 }
 
 .record-entry-actions .field {
-  min-width: 172px;
+  min-width: 156px;
+}
+
+.record-entry-actions .primary-button {
+  padding: 9px 14px;
 }
 
 .record-last-date {
   display: grid;
-  gap: 4px;
-  min-width: 132px;
-  padding: 12px 14px;
-  border-radius: 16px;
+  gap: 2px;
+  min-width: 118px;
+  padding: 8px 10px;
+  border-radius: 12px;
   border: 1px solid rgba(16, 33, 39, 0.08);
   background: rgba(255, 255, 255, 0.8);
 }
 
 .record-last-date span {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .record-last-date strong {
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .record-date-field {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: auto;
 }
 
@@ -815,40 +877,51 @@ label {
 }
 
 .record-date-field input {
-  min-width: 148px;
-  padding: 9px 12px;
+  min-width: 138px;
+  padding: 8px 10px;
+  border-radius: 12px;
 }
 
 .record-entry-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .record-summary-card {
   display: grid;
-  gap: 4px;
-  padding: 14px 16px;
-  border-radius: 18px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
   border: 1px solid rgba(16, 33, 39, 0.08);
   background: rgba(255, 255, 255, 0.86);
+  min-width: 0;
 }
 
 .record-summary-card span {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .record-summary-card strong {
-  font-size: 22px;
+  justify-self: end;
+  font-size: 18px;
   line-height: 1;
+  min-width: 0;
 }
 
 .record-summary-delta {
+  grid-column: 1 / -1;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-style: normal;
-  line-height: 1.35;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .record-summary-delta.positive {
@@ -876,17 +949,225 @@ label {
 }
 
 .record-entry-note-inline {
-  padding: 12px 14px;
-  border-radius: 18px;
+  padding: 8px 10px;
+  border-radius: 12px;
   border: 1px solid rgba(16, 33, 39, 0.08);
   background: rgba(255, 255, 255, 0.72);
 }
 
+.record-entry-note-inline .field {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.record-entry-note-inline .field input {
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
+.record-tag-overview {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(16, 33, 39, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.record-tag-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.record-tag-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.record-tag-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.record-tag-head span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(16, 33, 39, 0.06);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.record-tag-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.record-tag-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(16, 33, 39, 0.08);
+  background: rgba(255, 255, 255, 0.86);
+  min-width: 0;
+}
+
+.record-tag-card.expanded {
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.record-tag-card-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+}
+
+.record-tag-title {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.record-tag-title span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-tag-card-main strong {
+  font-size: 17px;
+  line-height: 1;
+}
+
+.record-tag-title small {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.record-tag-toggle {
+  border: 1px solid rgba(16, 33, 39, 0.1);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: rgba(16, 33, 39, 0.04);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.record-tag-account-list {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(16, 33, 39, 0.12);
+}
+
+.record-tag-account-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(16, 33, 39, 0.035);
+}
+
+.record-tag-account-row div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.record-tag-account-row strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-tag-account-row span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-tag-account-row em {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.record-tag-adjustment-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px dashed rgba(16, 33, 39, 0.16);
+  background: rgba(176, 95, 47, 0.06);
+}
+
+.record-tag-adjustment-row > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.record-tag-adjustment-row strong {
+  font-size: 12px;
+}
+
+.record-tag-adjustment-row > div:first-child span {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.record-tag-adjustment-control {
+  display: grid;
+  grid-template-columns: auto minmax(88px, 112px);
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.record-tag-adjustment-control > span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.record-tag-adjustment-control input {
+  width: 100%;
+  padding: 5px 7px;
+  border-radius: 8px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .record-change-overview {
   display: grid;
-  gap: 14px;
-  padding: 16px;
-  border-radius: 20px;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 14px;
   border: 1px solid rgba(16, 33, 39, 0.08);
   background: rgba(255, 255, 255, 0.78);
 }
@@ -894,52 +1175,61 @@ label {
 .record-change-head {
   display: flex;
   justify-content: space-between;
-  gap: 14px;
-  align-items: flex-start;
+  gap: 10px;
+  align-items: center;
 }
 
 .record-change-head h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 15px;
 }
 
 .record-change-head p {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .record-change-counts {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
 .record-change-counts span {
-  padding: 7px 10px;
+  padding: 4px 8px;
   border-radius: 999px;
   background: rgba(16, 33, 39, 0.06);
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.record-change-counts span.positive {
+  color: var(--positive);
+}
+
+.record-change-counts span.negative {
+  color: var(--negative);
 }
 
 .record-change-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 8px;
 }
 
 .record-change-column {
   display: grid;
   align-content: start;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 16px;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
   border: 1px solid rgba(16, 33, 39, 0.08);
   background: rgba(255, 255, 255, 0.86);
+  min-width: 0;
 }
 
 .record-change-column[data-tone="increase"] {
@@ -954,7 +1244,7 @@ label {
 .record-change-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
 }
 
 .record-change-column-head {
@@ -963,24 +1253,26 @@ label {
 
 .record-change-column-head span {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
 .record-change-column-head strong {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .record-change-list {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 6px;
 }
 
 .record-change-row {
   align-items: center;
-  padding: 10px;
-  border-radius: 12px;
+  padding: 6px 8px;
+  border-radius: 10px;
   background: rgba(255, 255, 255, 0.72);
+  min-width: 0;
 }
 
 .record-change-account {
@@ -993,21 +1285,21 @@ label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .record-change-account span,
 .record-change-amount span {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .record-change-amount {
   display: grid;
   justify-items: end;
   gap: 2px;
-  min-width: 132px;
-  font-size: 13px;
+  min-width: 116px;
+  font-size: 12px;
   font-weight: 800;
   text-align: right;
 }
@@ -1016,83 +1308,88 @@ label {
 .record-change-empty-panel {
   margin: 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .record-change-empty-panel {
-  padding: 18px;
-  border-radius: 14px;
+  padding: 10px;
+  border-radius: 12px;
   background: rgba(16, 33, 39, 0.04);
   text-align: center;
 }
 
 .record-entry-groups {
   display: grid;
-  gap: 12px;
-  grid-template-columns: 1fr;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
 }
 
 .record-group-card {
   display: grid;
-  gap: 10px;
-  padding: 14px;
-  border-radius: 20px;
+  gap: 7px;
+  padding: 9px;
+  border-radius: 14px;
   border: 1px solid rgba(16, 33, 39, 0.08);
   background: rgba(255, 255, 255, 0.78);
+  min-width: 0;
 }
 
 .record-group-head {
   display: flex;
   justify-content: space-between;
-  align-items: end;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
 }
 
 .record-group-head h3 {
   margin: 0;
-  font-size: 17px;
+  font-size: 15px;
 }
 
 .record-group-head p {
   margin: 2px 0 0;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .record-group-head strong {
-  font-size: 18px;
+  font-size: 15px;
+  white-space: nowrap;
 }
 
 .record-parent-list {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .record-parent-card {
   display: grid;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 18px;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 12px;
   border: 1px solid rgba(16, 33, 39, 0.08);
   background: rgba(255, 255, 255, 0.92);
+  min-width: 0;
 }
 
 .record-parent-card.expanded {
   border-color: rgba(17, 50, 58, 0.16);
-  box-shadow: 0 10px 24px rgba(17, 50, 58, 0.06);
+  box-shadow: none;
 }
 
 .record-parent-toggle,
 .record-single-row,
 .record-child-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) auto minmax(160px, 220px);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto minmax(118px, 144px);
+  gap: 8px;
   align-items: center;
 }
 
 .record-parent-toggle {
   width: 100%;
+  grid-template-columns: minmax(0, 1fr) minmax(118px, 144px);
 }
 
 .record-parent-trigger {
@@ -1103,14 +1400,15 @@ label {
   text-align: left;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
-  grid-column: 1 / 3;
+  grid-column: 1;
+  min-width: 0;
 }
 
 .record-parent-head {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -1118,12 +1416,12 @@ label {
 .record-parent-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 5px;
   align-items: center;
 }
 
 .record-parent-title strong {
-  font-size: 15px;
+  font-size: 13px;
 }
 
 .record-parent-title-main {
@@ -1137,12 +1435,12 @@ label {
 .record-parent-arrow,
 .record-currency-chip {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .record-parent-meta span,
 .record-currency-chip {
-  padding: 6px 10px;
+  padding: 3px 6px;
   border-radius: 999px;
   background: rgba(16, 33, 39, 0.06);
   font-weight: 600;
@@ -1157,24 +1455,35 @@ label {
   display: grid;
   width: 100%;
   justify-items: end;
-  grid-column: 3;
-  min-width: 160px;
-  gap: 6px;
+  min-width: 118px;
+  gap: 3px;
 }
 
 .record-parent-total span {
   color: var(--text-muted);
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: 10px;
+  letter-spacing: 0;
+  max-width: 100%;
 }
 
 .record-parent-total strong {
-  font-size: 15px;
+  font-size: 13px;
   color: #102127;
 }
 
+.record-computed-total {
+  width: 100%;
+  min-height: 31px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 5px 8px;
+  border-radius: 9px;
+  background: rgba(16, 33, 39, 0.06);
+}
+
 .record-single-row {
-  padding: 2px 0;
+  padding: 0;
 }
 
 .record-parent-remark-wrap {
@@ -1186,8 +1495,8 @@ label {
   align-items: center;
   width: fit-content;
   justify-content: center;
-  min-width: 24px;
-  min-height: 24px;
+  min-width: 18px;
+  min-height: 18px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1205,14 +1514,14 @@ label {
 
 .record-child-list {
   display: grid;
-  gap: 8px;
-  padding-top: 10px;
+  gap: 5px;
+  padding-top: 5px;
   border-top: 1px dashed rgba(16, 33, 39, 0.12);
 }
 
 .record-child-row {
-  padding: 10px 12px;
-  border-radius: 14px;
+  padding: 6px 8px;
+  border-radius: 10px;
   background: rgba(244, 247, 246, 0.95);
 }
 
@@ -1224,7 +1533,7 @@ label {
 }
 
 .record-account-cell strong {
-  font-size: 13px;
+  font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1242,8 +1551,12 @@ label {
 .record-delta,
 .record-account-delta {
   color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.3;
+  font-size: 10px;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .record-delta.positive,
@@ -1265,8 +1578,8 @@ label {
 .record-amount-input {
   width: 100%;
   border: 1px solid rgba(16, 33, 39, 0.12);
-  border-radius: 12px;
-  padding: 8px 10px;
+  border-radius: 9px;
+  padding: 5px 8px;
   text-align: right;
   background: rgba(247, 248, 247, 0.95);
   color: #102127;

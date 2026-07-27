@@ -1,8 +1,10 @@
 package com.water.server.snapshot;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 public record AssetSnapshotDetailDto(
+        Long accountId,
         String accountCode,
         String accountName,
         String accountType,
@@ -15,6 +17,7 @@ public record AssetSnapshotDetailDto(
         BigDecimal originalAmount,
         String amountSource,
         Boolean computed,
-        String remark
+        String remark,
+        List<String> tags
 ) {
 }

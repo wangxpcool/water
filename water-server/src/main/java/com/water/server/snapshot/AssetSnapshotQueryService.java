@@ -8,6 +8,8 @@ import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -125,7 +127,7 @@ public class AssetSnapshotQueryService {
     }
 
     public List<AssetAccountOptionDto> findEnabledLeafAccounts() {
-        return findAccounts(true, true);
+        return findAccounts(true, false);
     }
 
     public List<AssetAccountOptionDto> findAllAccounts() {
@@ -134,24 +136,9 @@ public class AssetSnapshotQueryService {
 
     public AssetAccountOptionDto findAccountById(long id) {
         Map<Long, BigDecimal> latestAmountMap = findLatestAmountByAccountId();
-        List<AssetAccountOptionDto> accounts = jdbcTemplate.query("""
-                SELECT id,
-                       account_code,
-                       account_name,
-                       category_group,
-                       account_type,
-                       parent_account_id,
-                       is_summary,
-                       balance_direction,
-                       currency_code,
-                       institution_name,
-                       owner_name,
-                       remark,
-                       sort_order,
-                       enabled
-                FROM asset_account
-                WHERE id = ?
-                """, (rs, rowNum) -> mapAccountRow(rs, latestAmountMap), id);
+        List<AssetAccountOptionDto> accounts = id < 0
+                ? findGroupById(toGroupId(id), latestAmountMap)
+                : findRealAccountById(id, latestAmountMap);
 
         if (accounts.isEmpty()) {
             throw new ResponseStatusException(NOT_FOUND, "Account not found: " + id);
@@ -159,15 +146,24 @@ public class AssetSnapshotQueryService {
         return accounts.get(0);
     }
 
-    private List<AssetAccountOptionDto> findAccounts(boolean enabledOnly, boolean leafOnly) {
+    private List<AssetAccountOptionDto> findAccounts(boolean enabledOnly, boolean realAccountsOnly) {
+        Map<Long, BigDecimal> latestAmountMap = findLatestAmountByAccountId();
+        List<AssetAccountOptionDto> accounts = new ArrayList<>();
+        if (!realAccountsOnly) {
+            accounts.addAll(findGroups(enabledOnly, latestAmountMap));
+        }
+        accounts.addAll(findRealAccounts(enabledOnly, latestAmountMap));
+        accounts.sort(accountComparator());
+        return accounts;
+    }
+
+    private List<AssetAccountOptionDto> findGroups(boolean enabledOnly, Map<Long, BigDecimal> latestAmountMap) {
         String sql = """
                 SELECT id,
-                       account_code,
-                       account_name,
+                       group_code,
+                       group_name,
                        category_group,
                        account_type,
-                       parent_account_id,
-                       is_summary,
                        balance_direction,
                        currency_code,
                        institution_name,
@@ -175,23 +171,83 @@ public class AssetSnapshotQueryService {
                        remark,
                        sort_order,
                        enabled
-                FROM asset_account
+                FROM asset_account_group
                 """;
-
-        List<String> predicates = new java.util.ArrayList<>();
         if (enabledOnly) {
-            predicates.add("enabled = 1");
-        }
-        if (leafOnly) {
-            predicates.add("is_summary = 0");
-        }
-        if (!predicates.isEmpty()) {
-            sql += " WHERE " + String.join(" AND ", predicates);
+            sql += " WHERE enabled = 1";
         }
         sql += " ORDER BY sort_order ASC, id ASC";
 
-        Map<Long, BigDecimal> latestAmountMap = findLatestAmountByAccountId();
-        return jdbcTemplate.query(sql, (rs, rowNum) -> mapAccountRow(rs, latestAmountMap));
+        return jdbcTemplate.query(sql, (rs, rowNum) -> mapGroupRow(rs, latestAmountMap));
+    }
+
+    private List<AssetAccountOptionDto> findGroupById(long groupId, Map<Long, BigDecimal> latestAmountMap) {
+        return jdbcTemplate.query("""
+                SELECT id,
+                       group_code,
+                       group_name,
+                       category_group,
+                       account_type,
+                       balance_direction,
+                       currency_code,
+                       institution_name,
+                       owner_name,
+                       remark,
+                       sort_order,
+                       enabled
+                FROM asset_account_group
+                WHERE id = ?
+                """, (rs, rowNum) -> mapGroupRow(rs, latestAmountMap), groupId);
+    }
+
+    private List<AssetAccountOptionDto> findRealAccounts(boolean enabledOnly, Map<Long, BigDecimal> latestAmountMap) {
+        String sql = """
+                SELECT a.id,
+                       a.account_code,
+                       a.account_name,
+                       COALESCE(g.category_group, a.category_group) AS category_group,
+                       a.account_type,
+                       a.group_id,
+                       a.balance_direction,
+                       a.currency_code,
+                       a.institution_name,
+                       a.owner_name,
+                       a.remark,
+                       a.tags,
+                       a.sort_order,
+                       a.enabled
+                FROM asset_account a
+                LEFT JOIN asset_account_group g ON g.id = a.group_id
+                WHERE 1 = 1
+                """;
+        if (enabledOnly) {
+            sql += " AND a.enabled = 1";
+        }
+        sql += " ORDER BY a.sort_order ASC, a.id ASC";
+
+        return jdbcTemplate.query(sql, (rs, rowNum) -> mapRealAccountRow(rs, latestAmountMap));
+    }
+
+    private List<AssetAccountOptionDto> findRealAccountById(long id, Map<Long, BigDecimal> latestAmountMap) {
+        return jdbcTemplate.query("""
+                SELECT a.id,
+                       a.account_code,
+                       a.account_name,
+                       COALESCE(g.category_group, a.category_group) AS category_group,
+                       a.account_type,
+                       a.group_id,
+                       a.balance_direction,
+                       a.currency_code,
+                       a.institution_name,
+                       a.owner_name,
+                       a.remark,
+                       a.tags,
+                       a.sort_order,
+                       a.enabled
+                FROM asset_account a
+                LEFT JOIN asset_account_group g ON g.id = a.group_id
+                WHERE a.id = ?
+                """, (rs, rowNum) -> mapRealAccountRow(rs, latestAmountMap), id);
     }
 
     private Map<Long, BigDecimal> findLatestAmountByAccountId() {
@@ -205,13 +261,20 @@ public class AssetSnapshotQueryService {
             return Map.of();
         }
 
-        return jdbcTemplate.query("""
-                SELECT account_id, amount
-                FROM asset_snapshot_detail
+        long snapshotId = latestSnapshotIds.get(0);
+        Map<Long, BigDecimal> latestAmounts = new LinkedHashMap<>();
+        jdbcTemplate.query("""
+                SELECT d.account_id, d.amount
+                FROM asset_snapshot_detail d
+                JOIN asset_account a ON a.id = d.account_id
+                WHERE d.snapshot_id = ?
+                """, (rs, rowNum) -> latestAmounts.put(rs.getLong("account_id"), rs.getBigDecimal("amount")), snapshotId);
+        jdbcTemplate.query("""
+                SELECT group_id, amount
+                FROM asset_snapshot_group_detail
                 WHERE snapshot_id = ?
-                """, (rs, rowNum) -> Map.entry(rs.getLong("account_id"), rs.getBigDecimal("amount")), latestSnapshotIds.get(0))
-                .stream()
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                """, (rs, rowNum) -> latestAmounts.put(toVirtualGroupId(rs.getLong("group_id")), rs.getBigDecimal("amount")), snapshotId);
+        return latestAmounts;
     }
 
     private Map<Long, List<AssetSnapshotDetailDto>> findDetailsBySnapshotId() {
@@ -219,38 +282,75 @@ public class AssetSnapshotQueryService {
     }
 
     private Map<Long, List<AssetSnapshotDetailDto>> findDetailsBySnapshotId(List<Long> snapshotIds) {
-        String sql = """
+        String snapshotPredicate = "";
+        Object[] args = new Object[0];
+        if (snapshotIds != null && !snapshotIds.isEmpty()) {
+            String placeholders = String.join(",", snapshotIds.stream().map(id -> "?").toList());
+            snapshotPredicate = " AND snapshot_id IN (" + placeholders + ")";
+            args = snapshotIds.toArray();
+        }
+
+        List<DetailRow> rows = new ArrayList<>();
+        rows.addAll(jdbcTemplate.query("""
+                SELECT gd.snapshot_id,
+                       g.group_code AS account_code,
+                       g.group_name AS account_name,
+                       g.category_group,
+                       g.account_type,
+                       NULL AS parent_account_id,
+                       1 AS is_summary,
+                       g.balance_direction,
+                       gd.currency_code,
+                       gd.amount,
+                       gd.original_amount,
+                       gd.amount_source,
+                       gd.is_computed,
+                       gd.remark,
+                       NULL AS tags,
+                       g.sort_order,
+                       -g.id AS account_id,
+                       g.id AS display_id
+                FROM asset_snapshot_group_detail gd
+                JOIN asset_account_group g ON g.id = gd.group_id
+                WHERE 1 = 1
+                """ + snapshotPredicate, (rs, rowNum) -> mapDetailRow(rs), args));
+
+        rows.addAll(jdbcTemplate.query("""
                 SELECT d.snapshot_id,
                        a.account_code,
                        a.account_name,
-                       a.category_group,
+                       COALESCE(g.category_group, a.category_group) AS category_group,
                        a.account_type,
-                       a.parent_account_id,
-                       a.is_summary,
+                       CASE WHEN a.group_id IS NULL THEN NULL ELSE -a.group_id END AS parent_account_id,
+                       0 AS is_summary,
                        a.balance_direction,
                        d.currency_code,
                        d.amount,
                        d.original_amount,
                        d.amount_source,
                        d.is_computed,
-                       d.remark
+                       d.remark,
+                       a.tags,
+                       a.sort_order,
+                       a.id AS account_id,
+                       a.id AS display_id
                 FROM asset_snapshot_detail d
                 JOIN asset_account a ON a.id = d.account_id
-                """;
-        Object[] args = new Object[0];
-        if (snapshotIds != null && !snapshotIds.isEmpty()) {
-            String placeholders = String.join(",", snapshotIds.stream().map(id -> "?").toList());
-            sql += " WHERE d.snapshot_id IN (" + placeholders + ")";
-            args = snapshotIds.toArray();
-        }
-        sql += " ORDER BY d.snapshot_id DESC, a.sort_order ASC, d.id ASC";
+                LEFT JOIN asset_account_group g ON g.id = a.group_id
+                WHERE 1 = 1
+                """ + snapshotPredicate.replace("snapshot_id", "d.snapshot_id"), (rs, rowNum) -> mapDetailRow(rs), args));
 
-        List<DetailRow> rows = jdbcTemplate.query(sql, (rs, rowNum) -> mapDetailRow(rs), args);
+        rows.sort(Comparator
+                .comparing(DetailRow::snapshotId, Comparator.reverseOrder())
+                .thenComparing(DetailRow::sortOrder)
+                .thenComparing(row -> Boolean.TRUE.equals(row.summaryAccount()) ? 0 : 1)
+                .thenComparing(DetailRow::displayId));
 
         Map<Long, List<AssetSnapshotDetailDto>> detailMap = new LinkedHashMap<>();
         for (DetailRow row : rows) {
-            detailMap.computeIfAbsent(row.snapshotId(), ignored -> new java.util.ArrayList<>())
+            detailMap.computeIfAbsent(row.snapshotId(), ignored -> new ArrayList<>())
                     .add(new AssetSnapshotDetailDto(
+                            row.accountId(),
                             row.accountCode(),
                             row.accountName(),
                             row.accountType(),
@@ -263,7 +363,8 @@ public class AssetSnapshotQueryService {
                             row.originalAmount(),
                             row.amountSource(),
                             row.computed(),
-                            row.remark()
+                            row.remark(),
+                            row.tags()
                     ));
         }
         return detailMap;
@@ -293,6 +394,7 @@ public class AssetSnapshotQueryService {
     private DetailRow mapDetailRow(ResultSet rs) throws SQLException {
         return new DetailRow(
                 rs.getLong("snapshot_id"),
+                rs.getLong("account_id"),
                 rs.getString("account_code"),
                 rs.getString("account_name"),
                 rs.getString("category_group"),
@@ -305,20 +407,24 @@ public class AssetSnapshotQueryService {
                 rs.getBigDecimal("original_amount"),
                 rs.getString("amount_source"),
                 rs.getInt("is_computed") == 1,
-                rs.getString("remark")
+                rs.getString("remark"),
+                parseTags(rs.getString("tags")),
+                rs.getInt("sort_order"),
+                rs.getLong("display_id")
         );
     }
 
-    private AssetAccountOptionDto mapAccountRow(ResultSet rs, Map<Long, BigDecimal> latestAmountMap) throws SQLException {
-        long id = rs.getLong("id");
+    private AssetAccountOptionDto mapGroupRow(ResultSet rs, Map<Long, BigDecimal> latestAmountMap) throws SQLException {
+        long groupId = rs.getLong("id");
+        long virtualId = toVirtualGroupId(groupId);
         return new AssetAccountOptionDto(
-                id,
-                rs.getString("account_code"),
-                rs.getString("account_name"),
+                virtualId,
+                rs.getString("group_code"),
+                rs.getString("group_name"),
                 rs.getString("account_type"),
-                resolveCategoryGroup(rs),
-                toNullableLong(rs.getObject("parent_account_id")),
-                rs.getInt("is_summary") == 1,
+                rs.getString("category_group"),
+                null,
+                true,
                 rs.getString("balance_direction"),
                 rs.getString("currency_code"),
                 rs.getString("institution_name"),
@@ -326,8 +432,49 @@ public class AssetSnapshotQueryService {
                 rs.getString("remark"),
                 rs.getInt("sort_order"),
                 rs.getInt("enabled") == 1,
+                List.of(),
+                latestAmountMap.get(virtualId)
+        );
+    }
+
+    private AssetAccountOptionDto mapRealAccountRow(ResultSet rs, Map<Long, BigDecimal> latestAmountMap) throws SQLException {
+        long id = rs.getLong("id");
+        Long groupId = toNullableLong(rs.getObject("group_id"));
+        return new AssetAccountOptionDto(
+                id,
+                rs.getString("account_code"),
+                rs.getString("account_name"),
+                rs.getString("account_type"),
+                resolveCategoryGroup(rs),
+                groupId == null ? null : toVirtualGroupId(groupId),
+                false,
+                rs.getString("balance_direction"),
+                rs.getString("currency_code"),
+                rs.getString("institution_name"),
+                rs.getString("owner_name"),
+                rs.getString("remark"),
+                rs.getInt("sort_order"),
+                rs.getInt("enabled") == 1,
+                parseTags(rs.getString("tags")),
                 latestAmountMap.get(id)
         );
+    }
+
+    private Comparator<AssetAccountOptionDto> accountComparator() {
+        return Comparator
+                .comparingInt((AssetAccountOptionDto account) -> categoryOrder(account.categoryGroup()))
+                .thenComparing(account -> account.sortOrder() == null ? 0 : account.sortOrder())
+                .thenComparing(account -> account.parentAccountId() == null ? 0 : 1)
+                .thenComparing(AssetAccountOptionDto::id);
+    }
+
+    private int categoryOrder(String categoryGroup) {
+        return switch (categoryGroup) {
+            case "CASH" -> 0;
+            case "INVESTMENT" -> 1;
+            case "LIABILITY" -> 2;
+            default -> 99;
+        };
     }
 
     private Long toNullableLong(Object value) {
@@ -349,6 +496,25 @@ public class AssetSnapshotQueryService {
             return categoryGroup;
         }
         return AccountCategoryGroup.resolve(rs.getString("account_code"), rs.getString("account_type")).code();
+    }
+
+    private long toVirtualGroupId(long groupId) {
+        return groupId * -1;
+    }
+
+    private long toGroupId(long virtualGroupId) {
+        return Math.abs(virtualGroupId);
+    }
+
+    private List<String> parseTags(String rawTags) {
+        if (rawTags == null || rawTags.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(rawTags.split(","))
+                .map(String::trim)
+                .filter(tag -> !tag.isEmpty())
+                .distinct()
+                .toList();
     }
 
     private record SnapshotRow(
@@ -373,6 +539,7 @@ public class AssetSnapshotQueryService {
 
     private record DetailRow(
             Long snapshotId,
+            Long accountId,
             String accountCode,
             String accountName,
             String categoryGroup,
@@ -385,7 +552,10 @@ public class AssetSnapshotQueryService {
             BigDecimal originalAmount,
             String amountSource,
             Boolean computed,
-            String remark
+            String remark,
+            List<String> tags,
+            Integer sortOrder,
+            Long displayId
     ) {
     }
 }

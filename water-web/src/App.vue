@@ -1,11 +1,13 @@
 ﻿<script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import SnapshotEditor from "./components/SnapshotEditor.vue";
+import AccountEditor from "./components/AccountEditor.vue";
 
 const HOME_PAGE = "home";
 const SNAPSHOTS_PAGE = "snapshots";
 const ACCOUNT_LIST_PAGE = "account-list";
 const RECORD_ENTRY_PAGE = "record-entry";
+const RECORD_ENTRY_TAG_ADJUSTMENTS_STORAGE_KEY = "water.recordEntryTagAdjustments.v1";
 
 const loading = ref(true);
 const saving = ref(false);
@@ -20,15 +22,23 @@ const accounts = ref([]);
 const expandedId = ref(null);
 const editingId = ref(null);
 const deletingId = ref(null);
+const accountEditingId = ref(null);
+const accountDeletingId = ref(null);
 const netWorthChartRef = ref(null);
 let netWorthChartInstance = null;
 let formSuccessTimer = null;
 
 const snapshotForm = reactive(createEmptySnapshotForm());
+const accountForm = reactive(createEmptyAccountForm());
 const accountListFilters = reactive(createAccountListFilters());
 const recordEntryForm = reactive(createEmptyRecordEntryForm());
 const expandedAccountIds = ref([]);
 const expandedRemarkIds = ref([]);
+const collapsedRecordEntryIds = ref([]);
+const expandedRecordTagNames = ref([]);
+const recordEntryTagAdjustments = reactive(loadRecordEntryTagAdjustments());
+
+watch(recordEntryTagAdjustments, persistRecordEntryTagAdjustments, { deep: true });
 
 const latestSnapshot = computed(() => snapshots.value[0] ?? null);
 const previousRecordSnapshot = computed(() => {
@@ -52,17 +62,23 @@ const categoryGroupLabels = {
   LIABILITY: "借贷"
 };
 const accountGroupOrder = ["CASH", "INVESTMENT", "LIABILITY"];
+const recordEntryTagOrder = ["可支配资产", "不可支配资产", "风险资产", "固收", "现金"];
 const accountIdMap = computed(() => new Map(accounts.value.map((account) => [account.id, account])));
-const accountCodeMap = computed(() => new Map(accounts.value.map((account) => [account.accountCode, account])));
 const latestSnapshotDetailMap = computed(() => {
   const map = new Map();
 
   for (const detail of latestSnapshot.value?.details ?? []) {
-    const account = accountCodeMap.value.get(detail.accountCode);
-    if (!account) {
+    if (detail.accountId !== null && detail.accountId !== undefined) {
+      map.set(Number(detail.accountId), detail);
       continue;
     }
-    map.set(account.id, detail);
+
+    const account = accounts.value.find(
+      (item) => item.accountCode === detail.accountCode && Boolean(item.summaryAccount) === Boolean(detail.summaryAccount)
+    );
+    if (account) {
+      map.set(account.id, detail);
+    }
   }
 
   return map;
@@ -71,7 +87,9 @@ const previousRecordDetailMap = computed(() => {
   const map = new Map();
 
   for (const detail of previousRecordSnapshot.value?.details ?? []) {
-    map.set(detail.accountCode, detail);
+    if (detail.accountId !== null && detail.accountId !== undefined) {
+      map.set(Number(detail.accountId), detail);
+    }
   }
 
   return map;
@@ -112,6 +130,7 @@ const filteredAccounts = computed(() => {
       account.institutionName,
       account.ownerName,
       account.remark,
+      ...(account.tags ?? []),
       parentName,
       categoryGroupLabel(account.categoryGroup)
     ]
@@ -238,41 +257,25 @@ const recordEntryAccountChildrenMap = computed(() => {
 
   return map;
 });
+const recordEntryTopLevelAccounts = computed(() =>
+  recordEntryEnabledAccounts.value.filter((account) => account.parentAccountId === null)
+);
 const recordEntryRootGroups = computed(() =>
   accountGroupOrder.map((group) => ({
     key: group,
     label: categoryGroupLabels[group],
-    roots: (recordEntryAccountChildrenMap.value.get("root") ?? []).filter((account) => account.categoryGroup === group)
+    roots: recordEntryTopLevelAccounts.value.filter((account) => account.categoryGroup === group)
   }))
 );
-const recordEntryAccounts = computed(() =>
-  accounts.value
-    .filter((account) => account.enabled && !account.summaryAccount)
-    .slice()
-    .sort((a, b) => {
-      const groupCompare = accountGroupOrder.indexOf(a.categoryGroup) - accountGroupOrder.indexOf(b.categoryGroup);
-      if (groupCompare !== 0) {
-        return groupCompare;
-      }
-      const parentCompare = (a.parentAccountId ?? 0) - (b.parentAccountId ?? 0);
-      if (parentCompare !== 0) {
-        return parentCompare;
-      }
-      const sortCompare = Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0);
-      if (sortCompare !== 0) {
-        return sortCompare;
-      }
-      return String(a.accountName ?? "").localeCompare(String(b.accountName ?? ""), "zh-CN");
-    })
-);
-const recordEntryLeafAccounts = computed(() => recordEntryAccounts.value.filter((account) => !hasRecordEntryChildren(account)));
 const recordEntryCategoryTotals = computed(() =>
   Object.fromEntries(
     accountGroupOrder.map((group) => [
       group,
-      recordEntryRootGroups.value
-        .find((item) => item.key === group)
-        ?.roots.reduce((sum, account) => sum + recordEntrySignedAmount(account), 0) ?? 0
+      roundToSingleDecimal(
+        recordEntryTopLevelAccounts.value
+          .filter((account) => account.categoryGroup === group)
+          .reduce((sum, account) => sum + recordEntrySignedAmount(account), 0)
+      )
     ])
   )
 );
@@ -281,11 +284,10 @@ const previousRecordCategoryTotals = computed(() =>
     accountGroupOrder.map((group) => [group, snapshotCategorySignedTotal(previousRecordSnapshot.value, group)])
   )
 );
-const recordEntryNetWorth = computed(
-  () =>
-    numberValue(recordEntryCategoryTotals.value.CASH) +
-    numberValue(recordEntryCategoryTotals.value.INVESTMENT) +
-    numberValue(recordEntryCategoryTotals.value.LIABILITY)
+const recordEntryNetWorth = computed(() =>
+  roundToSingleDecimal(
+    recordEntryTopLevelAccounts.value.reduce((sum, account) => sum + recordEntrySignedAmount(account), 0)
+  )
 );
 const recordEntrySummaryDeltas = computed(() => ({
   CASH: roundToSingleDecimal(numberValue(recordEntryCategoryTotals.value.CASH) - numberValue(previousRecordCategoryTotals.value.CASH)),
@@ -297,15 +299,84 @@ const recordEntrySummaryDeltas = computed(() => ({
   ),
   NET_WORTH: roundToSingleDecimal(recordEntryNetWorth.value - snapshotNetWorth(previousRecordSnapshot.value))
 }));
+const recordEntryTagTotals = computed(() => {
+  const totals = new Map();
+
+  for (const account of recordEntryEnabledAccounts.value) {
+    if (Boolean(account.summaryAccount) || isRecordEntryHiddenMirrorChild(account) || !account.tags?.length) {
+      continue;
+    }
+
+    const amount = recordEntrySignedAmount(account);
+    for (const tag of account.tags) {
+      const item = totals.get(tag) ?? {
+        tag,
+        total: 0,
+        accountCount: 0,
+        accounts: []
+      };
+      item.total = roundToSingleDecimal(item.total + amount);
+      item.accounts.push({
+        account,
+        amount
+      });
+      item.accountCount = item.accounts.length;
+      totals.set(tag, item);
+    }
+  }
+
+  return [...totals.values()].map((item) => {
+    const baseTotal = roundToSingleDecimal(item.total);
+    const adjustment = roundToSingleDecimal(recordEntryTagAdjustments[item.tag]);
+    return {
+      ...item,
+      baseTotal,
+      adjustment,
+      total: roundToSingleDecimal(baseTotal + adjustment),
+      accounts: item.accounts.sort((a, b) => {
+      const categoryCompare = accountGroupOrder.indexOf(a.account.categoryGroup) - accountGroupOrder.indexOf(b.account.categoryGroup);
+      if (categoryCompare !== 0) {
+        return categoryCompare;
+      }
+      const sortCompare = Number(a.account.sortOrder ?? 0) - Number(b.account.sortOrder ?? 0);
+      if (sortCompare !== 0) {
+        return sortCompare;
+      }
+      return String(a.account.accountName ?? "").localeCompare(String(b.account.accountName ?? ""), "zh-CN");
+      })
+    };
+  }).sort((a, b) => {
+    const aOrder = recordEntryTagOrder.indexOf(a.tag);
+    const bOrder = recordEntryTagOrder.indexOf(b.tag);
+    const aRank = aOrder === -1 ? recordEntryTagOrder.length : aOrder;
+    const bRank = bOrder === -1 ? recordEntryTagOrder.length : bOrder;
+    if (aRank !== bRank) {
+      return aRank - bRank;
+    }
+
+    const totalCompare = Math.abs(b.total) - Math.abs(a.total);
+    if (totalCompare !== 0) {
+      return totalCompare;
+    }
+    return a.tag.localeCompare(b.tag, "zh-CN");
+  });
+});
+const areAllRecordTagsExpanded = computed(() =>
+  recordEntryTagTotals.value.length > 0 &&
+  recordEntryTagTotals.value.every((item) => isRecordTagExpanded(item.tag))
+);
 const recordEntryChangeOverview = computed(() => {
-  const rows = recordEntryLeafAccounts.value
+  const overviewAccounts = recordEntryEnabledAccounts.value
+    .filter((account) => !Boolean(account.summaryAccount) && !isRecordEntryHiddenMirrorChild(account));
+  const rows = overviewAccounts
     .map((account) => {
       const currentAmount = recordEntryResolvedAmount(account);
       const previousAmount = previousRecordAmount(account);
-      const delta = roundToSingleDecimal(currentAmount - previousAmount);
+      const delta = recordEntryDelta(account);
 
       return {
         account,
+        displayAccount: recordEntryPrimaryInputAccount(account),
         currentAmount,
         previousAmount,
         delta
@@ -323,15 +394,20 @@ const recordEntryChangeOverview = computed(() => {
   return {
     increases,
     decreases,
-    total: recordEntryLeafAccounts.value.length,
+    totalIncrease: roundToSingleDecimal(increases.reduce((sum, item) => sum + item.delta, 0)),
+    totalDecrease: roundToSingleDecimal(decreases.reduce((sum, item) => sum + Math.abs(item.delta), 0)),
+    total: overviewAccounts.length,
     changed: rows.length,
-    unchanged: Math.max(recordEntryLeafAccounts.value.length - rows.length, 0)
+    unchanged: Math.max(overviewAccounts.length - rows.length, 0)
   };
 });
 
 const isSnapshotCreating = computed(() => editingId.value === "new");
 const isSnapshotEditing = computed(() => editingId.value !== null);
 const snapshotSubmitLabel = computed(() => (isSnapshotCreating.value ? "新增快照" : "保存修改"));
+const isAccountCreating = computed(() => accountEditingId.value === "new");
+const isAccountEditing = computed(() => accountEditingId.value !== null);
+const accountSubmitLabel = computed(() => (isAccountCreating.value ? "新增账户" : "保存账户"));
 
 const chartSnapshots = computed(() => {
   if (!snapshots.value || snapshots.value.length < 2) {
@@ -371,13 +447,25 @@ onBeforeUnmount(() => {
   }
 });
 
+watch(currentPage, (page) => {
+  if (page === HOME_PAGE) {
+    renderHomeChart();
+    return;
+  }
+
+  if (netWorthChartInstance) {
+    netWorthChartInstance.destroy();
+    netWorthChartInstance = null;
+  }
+});
+
 function initNetWorthChart() {
   if (netWorthChartInstance) {
     netWorthChartInstance.destroy();
     netWorthChartInstance = null;
   }
 
-  if (!chartData.value) {
+  if (!chartData.value || !netWorthChartRef.value) {
     return;
   }
 
@@ -498,6 +586,18 @@ function initNetWorthChart() {
   });
 }
 
+function renderHomeChart() {
+  if (currentPage.value !== HOME_PAGE) {
+    return;
+  }
+
+  nextTick(() => {
+    if (currentPage.value === HOME_PAGE) {
+      initNetWorthChart();
+    }
+  });
+}
+
 async function loadAll() {
   loading.value = true;
   error.value = "";
@@ -530,9 +630,7 @@ async function loadAll() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : "加载失败";
   } finally {
-    if (currentPage.value === HOME_PAGE) {
-      initNetWorthChart();
-    }
+    renderHomeChart();
     loading.value = false;
   }
 }
@@ -559,7 +657,7 @@ function navigateTo(page) {
   } else if (page === SNAPSHOTS_PAGE) {
     window.location.hash = "/snapshots";
   } else {
-    window.location.hash = "/";
+    window.history.pushState(null, "", window.location.pathname + window.location.search);
   }
   formError.value = "";
   formSuccess.value = "";
@@ -591,6 +689,25 @@ function createEmptySnapshotForm() {
   };
 }
 
+function createEmptyAccountForm() {
+  return {
+    accountCode: "",
+    accountName: "",
+    categoryGroup: "CASH",
+    accountType: "BANK_CARD",
+    parentAccountId: "",
+    summaryAccount: false,
+    balanceDirection: "ASSET",
+    currencyCode: "CNY",
+    institutionName: "",
+    ownerName: "",
+    remark: "",
+    sortOrder: 0,
+    enabled: true,
+    tagsText: ""
+  };
+}
+
 function createAccountListFilters() {
   return {
     query: "",
@@ -614,6 +731,10 @@ function resetSnapshotForm(next) {
   Object.assign(snapshotForm, createEmptySnapshotForm(), next);
 }
 
+function resetAccountForm(next) {
+  Object.assign(accountForm, createEmptyAccountForm(), next);
+}
+
 function resetAccountListFilters() {
   Object.assign(accountListFilters, createAccountListFilters());
 }
@@ -626,25 +747,28 @@ function syncRecordEntryForm(nextAccounts) {
   nextAccounts
     .filter((account) => account.enabled)
     .forEach((account) => {
-      const existingAmount = recordEntryForm.amounts[account.accountCode];
+      const key = accountKey(account);
+      const existingAmount = recordEntryForm.amounts[key];
       const latestAmount = latestRecordDetail(account)?.amount;
-      nextAmounts[account.accountCode] =
+      nextAmounts[key] =
         existingAmount !== undefined && existingAmount !== ""
           ? existingAmount
           : toFieldValue(latestAmount);
 
       if (isRecordEntryParentAccount(account)) {
-        nextParentManualOverrides[account.accountCode] =
-          recordEntryForm.parentManualOverrides[account.accountCode] ?? false;
+        nextParentManualOverrides[key] = hasRecordEntryChildren(account)
+          ? false
+          : (recordEntryForm.parentManualOverrides[key] ?? false);
       }
     });
 
   nextAccounts
     .filter((account) => account.enabled && isRecordEntryParentAccount(account))
     .forEach((account) => {
-      const existingRemark = recordEntryForm.parentRemarks[account.accountCode];
+      const key = accountKey(account);
+      const existingRemark = recordEntryForm.parentRemarks[key];
       const latestRemark = latestRecordDetail(account)?.remark;
-      nextParentRemarks[account.accountCode] =
+      nextParentRemarks[key] =
         existingRemark !== undefined && existingRemark !== ""
           ? existingRemark
           : (latestRemark ?? "");
@@ -665,6 +789,18 @@ function toggleAccountChildren(accountId) {
     return;
   }
   expandedAccountIds.value = [...expandedAccountIds.value, accountId];
+}
+
+function isRecordEntryExpanded(accountId) {
+  return !collapsedRecordEntryIds.value.includes(accountId);
+}
+
+function toggleRecordEntryChildren(accountId) {
+  if (isRecordEntryExpanded(accountId)) {
+    collapsedRecordEntryIds.value = [...collapsedRecordEntryIds.value, accountId];
+    return;
+  }
+  collapsedRecordEntryIds.value = collapsedRecordEntryIds.value.filter((id) => id !== accountId);
 }
 
 function isRemarkExpanded(accountId) {
@@ -694,6 +830,31 @@ function parseNullableNumber(value) {
 function numberValue(value) {
   const numeric = Number(value);
   return Number.isNaN(numeric) ? 0 : numeric;
+}
+
+function parseTagsText(value) {
+  const seen = new Set();
+  return String(value ?? "")
+    .split(/[，,]/)
+    .map((tag) => tag.trim())
+    .filter((tag) => {
+      if (!tag || seen.has(tag)) {
+        return false;
+      }
+      seen.add(tag);
+      return true;
+    });
+}
+
+function nextAccountSortOrder(parent = null) {
+  const related = parent
+    ? accounts.value.filter((account) => account.parentAccountId === parent.id)
+    : accounts.value;
+  const maxSortOrder = related.reduce(
+    (max, account) => Math.max(max, Number(account.sortOrder ?? 0)),
+    Number(parent?.sortOrder ?? 0)
+  );
+  return maxSortOrder + (parent ? 1 : 10);
 }
 
 function roundToSingleDecimal(value) {
@@ -753,12 +914,91 @@ function categoryGroupLabel(group) {
   return categoryGroupLabels[group] ?? group ?? "--";
 }
 
+function accountKey(account) {
+  return String(account.id);
+}
+
+function isRecordTagExpanded(tag) {
+  return expandedRecordTagNames.value.includes(tag);
+}
+
+function toggleRecordTag(tag) {
+  if (isRecordTagExpanded(tag)) {
+    expandedRecordTagNames.value = expandedRecordTagNames.value.filter((item) => item !== tag);
+    return;
+  }
+  expandedRecordTagNames.value = [...expandedRecordTagNames.value, tag];
+}
+
+function toggleAllRecordTags() {
+  expandedRecordTagNames.value = areAllRecordTagsExpanded.value
+    ? []
+    : recordEntryTagTotals.value.map((item) => item.tag);
+}
+
 function recordEntryChildren(account) {
   return recordEntryAccountChildrenMap.value.get(account.id) ?? [];
 }
 
+function recordEntrySameCodeChild(account) {
+  return recordEntryChildren(account).find((child) => child.accountCode === account.accountCode) ?? null;
+}
+
+function recordEntryRollupChildren(account) {
+  const children = recordEntryChildren(account);
+  const sameCodeChild = recordEntrySameCodeChild(account);
+  if (children.length > 1 && sameCodeChild) {
+    return children.filter((child) => child.id !== sameCodeChild.id);
+  }
+  return children;
+}
+
+function isRecordEntryHiddenMirrorChild(account) {
+  if (account.parentAccountId === null || account.parentAccountId === undefined) {
+    return false;
+  }
+
+  const parent = accountIdMap.value.get(account.parentAccountId);
+  return Boolean(parent && recordEntryChildren(parent).length > 1 && parent.accountCode === account.accountCode);
+}
+
+function recordEntryPrimaryInputAccount(account) {
+  const children = recordEntryChildren(account);
+  if (children.length === 0) {
+    return account;
+  }
+
+  const sameCodeChild = recordEntrySameCodeChild(account);
+  if (sameCodeChild) {
+    return sameCodeChild;
+  }
+
+  return children.length === 1 ? children[0] : account;
+}
+
+function isRecordEntryFlattenedAccount(account) {
+  return recordEntryChildren(account).length === 1;
+}
+
+function recordEntryPrimaryInputValue(account) {
+  const ownValue = recordEntryForm.amounts[accountKey(account)];
+  if (ownValue !== undefined && ownValue !== null && String(ownValue).trim() !== "") {
+    return ownValue;
+  }
+  return recordEntryForm.amounts[accountKey(recordEntryPrimaryInputAccount(account))];
+}
+
+function recordEntryVisibleChildren(account) {
+  const children = recordEntryChildren(account);
+  const sameCodeChild = recordEntrySameCodeChild(account);
+  if (!sameCodeChild) {
+    return children;
+  }
+  return children.filter((child) => child.id !== sameCodeChild.id);
+}
+
 function hasRecordEntryChildren(account) {
-  return recordEntryChildren(account).length > 0;
+  return !isRecordEntryFlattenedAccount(account) && recordEntryVisibleChildren(account).length > 0;
 }
 
 function isRecordEntryParentAccount(account) {
@@ -766,9 +1006,9 @@ function isRecordEntryParentAccount(account) {
 }
 
 function recordEntryAggregateAmount(account) {
-  const children = recordEntryChildren(account);
+  const children = recordEntryRollupChildren(account);
   if (children.length === 0) {
-    return roundToSingleDecimal(convertToRmb(recordEntryForm.amounts[account.accountCode], account.currencyCode));
+    return roundToSingleDecimal(convertToRmb(recordEntryForm.amounts[accountKey(account)], account.currencyCode));
   }
 
   return roundToSingleDecimal(children.reduce((sum, child) => sum + recordEntryResolvedAmount(child), 0));
@@ -787,32 +1027,27 @@ function previousRecordDateLabel() {
 }
 
 function hasRecordEntryValue(account) {
-  const children = recordEntryChildren(account);
-  if (children.length === 0) {
-    const value = recordEntryForm.amounts[account.accountCode];
-    return value !== undefined && value !== null && String(value).trim() !== "";
+  const value = recordEntryForm.amounts[accountKey(account)];
+  if (value !== undefined && value !== null && String(value).trim() !== "") {
+    return true;
   }
-
-  return children.some((child) => hasRecordEntryValue(child));
+  return recordEntryRollupChildren(account).some((child) => hasRecordEntryValue(child));
 }
 
 function recordEntryResolvedAmount(account) {
-  const children = recordEntryChildren(account);
-  if (children.length === 0) {
-    return roundToSingleDecimal(convertToRmb(recordEntryForm.amounts[account.accountCode], account.currencyCode));
-  }
-
-  const rawValue = recordEntryForm.amounts[account.accountCode];
-  if (recordEntryForm.parentManualOverrides[account.accountCode] && String(rawValue ?? "").trim() !== "") {
-    return roundToSingleDecimal(numberValue(rawValue));
-  }
-
+  const key = accountKey(account);
+  const rawValue = recordEntryForm.amounts[key];
+  const children = recordEntryRollupChildren(account);
   const hasChildInput = children.some((child) => hasRecordEntryValue(child));
   if (hasChildInput) {
     return recordEntryAggregateAmount(account);
   }
 
-  return roundToSingleDecimal(numberValue(rawValue));
+  if (rawValue !== undefined && rawValue !== null && String(rawValue).trim() !== "") {
+    return roundToSingleDecimal(convertToRmb(rawValue, account.currencyCode));
+  }
+
+  return 0;
 }
 
 function recordEntrySignedAmount(account) {
@@ -821,7 +1056,7 @@ function recordEntrySignedAmount(account) {
 }
 
 function previousRecordAmount(account) {
-  const detail = previousRecordDetailMap.value.get(account.accountCode);
+  const detail = previousRecordDetailMap.value.get(account.id);
   if (!detail) {
     return 0;
   }
@@ -829,7 +1064,9 @@ function previousRecordAmount(account) {
 }
 
 function recordEntryDelta(account) {
-  return roundToSingleDecimal(recordEntryResolvedAmount(account) - previousRecordAmount(account));
+  const amountDelta = recordEntryResolvedAmount(account) - previousRecordAmount(account);
+  const impactDelta = account.balanceDirection === "DEBT" ? amountDelta * -1 : amountDelta;
+  return roundToSingleDecimal(impactDelta);
 }
 
 function recordEntryDeltaLabel(account) {
@@ -837,7 +1074,18 @@ function recordEntryDeltaLabel(account) {
     return "暂无历史对比";
   }
 
+  const amountDelta = roundToSingleDecimal(recordEntryResolvedAmount(account) - previousRecordAmount(account));
   const delta = recordEntryDelta(account);
+  if (account.balanceDirection === "DEBT") {
+    if (amountDelta > 0) {
+      return `负债增加，净值减少 ${formatSignedDelta(Math.abs(delta), account.currencyCode)}`;
+    }
+    if (amountDelta < 0) {
+      return `负债减少，净值增加 ${formatSignedDelta(Math.abs(delta), account.currencyCode)}`;
+    }
+    return "较上次无变化";
+  }
+
   if (delta > 0) {
     return `较上次增加 ${formatSignedDelta(delta, account.currencyCode)}`;
   }
@@ -888,16 +1136,30 @@ function summaryDeltaTone(value) {
   return "";
 }
 
-function handleParentAmountInput(accountCode, value) {
-  recordEntryForm.amounts[accountCode] = value;
-  recordEntryForm.parentManualOverrides[accountCode] = String(value ?? "").trim() !== "";
+function handleParentAmountInput(account, value) {
+  const key = accountKey(account);
+  recordEntryForm.amounts[key] = value;
+  recordEntryForm.parentManualOverrides[key] = String(value ?? "").trim() !== "";
+}
+
+function handleRecordEntryPrimaryAmountInput(root, value) {
+  const inputAccount = recordEntryPrimaryInputAccount(root);
+  const rootKey = accountKey(root);
+  recordEntryForm.amounts[rootKey] = value;
+  recordEntryForm.parentManualOverrides[rootKey] = String(value ?? "").trim() !== "";
+
+  const key = accountKey(inputAccount);
+  if (key !== rootKey) {
+    recordEntryForm.amounts[key] = value;
+  }
 }
 
 watch(
   () => ({ ...recordEntryForm.amounts }),
   () => {
     for (const account of accounts.value.filter((item) => item.enabled && isRecordEntryParentAccount(item))) {
-      if (recordEntryForm.parentManualOverrides[account.accountCode]) {
+      const key = accountKey(account);
+      if (recordEntryForm.parentManualOverrides[key]) {
         continue;
       }
 
@@ -906,12 +1168,16 @@ watch(
         continue;
       }
 
-      const hasChildInput = children.some((child) => hasRecordEntryValue(child));
+      const rollupChildren = recordEntryRollupChildren(account);
+      const hasChildInput = rollupChildren.some((child) => hasRecordEntryValue(child));
       if (!hasChildInput) {
         continue;
       }
 
-      recordEntryForm.amounts[account.accountCode] = recordEntryAggregateAmount(account).toFixed(1);
+      const nextAmount = recordEntryAggregateAmount(account).toFixed(1);
+      if (recordEntryForm.amounts[key] !== nextAmount) {
+        recordEntryForm.amounts[key] = nextAmount;
+      }
     }
   },
   { deep: true }
@@ -933,7 +1199,7 @@ function accountStatusLabel(account) {
 }
 
 function accountStructureLabel(account) {
-  return account.summaryAccount ? "汇总账户" : "明细账户";
+  return account.summaryAccount ? "账户组" : "子账户";
 }
 
 function latestAmountTone(account) {
@@ -947,8 +1213,12 @@ function latestAmountTone(account) {
 }
 
 function accountDetailDraft(snapshot, account) {
-  const existing = snapshot?.details?.find((detail) => detail.accountCode === account.accountCode);
+  const existing = snapshot?.details?.find((detail) =>
+    detail.accountId === account.id ||
+    (detail.accountId === undefined && detail.accountCode === account.accountCode && Boolean(detail.summaryAccount) === Boolean(account.summaryAccount))
+  );
   return {
+    accountId: account.id,
     accountCode: account.accountCode,
     accountName: account.accountName,
     accountType: account.accountType,
@@ -959,6 +1229,92 @@ function accountDetailDraft(snapshot, account) {
     currencyCode: existing?.currencyCode ?? account.currencyCode,
     amount: toFieldValue(existing?.amount)
   };
+}
+
+function loadRecordEntryTagAdjustments() {
+  try {
+    const cached = window.localStorage.getItem(RECORD_ENTRY_TAG_ADJUSTMENTS_STORAGE_KEY);
+    if (!cached) {
+      return {};
+    }
+
+    const parsed = JSON.parse(cached);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([tag, value]) =>
+        tag.trim() && String(value ?? "").trim() !== "" && Number.isFinite(Number(value))
+      )
+    );
+  } catch {
+    return {};
+  }
+}
+
+function persistRecordEntryTagAdjustments(values) {
+  try {
+    const cacheableValues = Object.fromEntries(
+      Object.entries(values).filter(([tag, value]) =>
+        tag.trim() && String(value ?? "").trim() !== "" && Number.isFinite(Number(value))
+      )
+    );
+    window.localStorage.setItem(RECORD_ENTRY_TAG_ADJUSTMENTS_STORAGE_KEY, JSON.stringify(cacheableValues));
+  } catch {
+    // 本地缓存不可用时保持当前页面功能，不影响台账录入。
+  }
+}
+
+function openCreateAccountGroupForm() {
+  accountEditingId.value = "new";
+  formError.value = "";
+  resetAccountForm({
+    summaryAccount: true,
+    accountType: "SUMMARY",
+    sortOrder: nextAccountSortOrder()
+  });
+}
+
+function openCreateChildAccountForm(parent = null) {
+  accountEditingId.value = "new";
+  formError.value = "";
+  resetAccountForm({
+    categoryGroup: parent?.categoryGroup ?? "CASH",
+    parentAccountId: parent ? String(parent.id) : "",
+    summaryAccount: false,
+    balanceDirection: parent?.balanceDirection ?? "ASSET",
+    currencyCode: parent?.currencyCode ?? "CNY",
+    accountType: parent?.accountType ?? "BANK_CARD",
+    sortOrder: nextAccountSortOrder(parent)
+  });
+}
+
+function openEditAccountForm(account) {
+  accountEditingId.value = account.id;
+  formError.value = "";
+  resetAccountForm({
+    accountCode: account.accountCode ?? "",
+    accountName: account.accountName ?? "",
+    categoryGroup: account.categoryGroup ?? "CASH",
+    accountType: account.accountType ?? "",
+    parentAccountId: account.parentAccountId === null || account.parentAccountId === undefined ? "" : String(account.parentAccountId),
+    summaryAccount: Boolean(account.summaryAccount),
+    balanceDirection: account.balanceDirection ?? "ASSET",
+    currencyCode: account.currencyCode ?? "CNY",
+    institutionName: account.institutionName ?? "",
+    ownerName: account.ownerName ?? "",
+    remark: account.remark ?? "",
+    sortOrder: account.sortOrder ?? 0,
+    enabled: account.enabled ?? true,
+    tagsText: (account.tags ?? []).join(", ")
+  });
+}
+
+function cancelAccountEditing() {
+  accountEditingId.value = null;
+  formError.value = "";
+  resetAccountForm();
 }
 
 function openCreateSnapshotForm() {
@@ -1005,6 +1361,7 @@ function buildSnapshotPayload() {
     note: snapshotForm.note.trim() || null,
     remark: snapshotForm.remark.trim() || null,
     details: snapshotForm.details.map((detail) => ({
+      accountId: detail.accountId,
       accountCode: detail.accountCode,
       amount: parseNullableNumber(detail.amount),
       currencyCode: detail.currencyCode
@@ -1012,20 +1369,50 @@ function buildSnapshotPayload() {
   };
 }
 
+function buildAccountPayload() {
+  const parentAccountId = accountForm.summaryAccount || !accountForm.parentAccountId
+    ? null
+    : Number(accountForm.parentAccountId);
+  return {
+    accountCode: accountForm.accountCode.trim(),
+    accountName: accountForm.accountName.trim(),
+    categoryGroup: accountForm.categoryGroup,
+    accountType: accountForm.accountType.trim(),
+    parentAccountId,
+    summaryAccount: Boolean(accountForm.summaryAccount),
+    balanceDirection: accountForm.balanceDirection,
+    currencyCode: accountForm.currencyCode,
+    institutionName: accountForm.institutionName.trim() || null,
+    ownerName: accountForm.ownerName.trim() || null,
+    remark: accountForm.remark.trim() || null,
+    sortOrder: Number(accountForm.sortOrder ?? 0),
+    enabled: Boolean(accountForm.enabled),
+    tags: accountForm.summaryAccount ? [] : parseTagsText(accountForm.tagsText)
+  };
+}
+
 function buildRecordEntryPayload() {
   const details = recordEntryEnabledAccounts.value
     .map((account) => {
-      const rawAmount = recordEntryForm.amounts[account.accountCode];
-      const amount = parseNullableNumber(rawAmount);
+      if (isRecordEntryHiddenMirrorChild(account)) {
+        return null;
+      }
+
+      const key = accountKey(account);
+      const rawAmount = recordEntryForm.amounts[key];
+      const amount = isRecordEntryParentAccount(account) && hasRecordEntryValue(account)
+        ? recordEntryResolvedAmount(account)
+        : parseNullableNumber(rawAmount);
       if (amount === null) {
         return null;
       }
 
       const remark = isRecordEntryParentAccount(account)
-        ? (recordEntryForm.parentRemarks[account.accountCode]?.trim() || null)
+        ? (recordEntryForm.parentRemarks[key]?.trim() || null)
         : null;
 
       return {
+        accountId: account.id,
         accountCode: account.accountCode,
         amount,
         currencyCode: account.currencyCode,
@@ -1078,6 +1465,39 @@ async function submitSnapshotForm() {
     showFormSuccess(isSnapshotCreating.value ? "新增快照成功" : "保存快照成功");
   } catch (err) {
     formError.value = err instanceof Error ? err.message : "保存失败";
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function submitAccountForm() {
+  formError.value = "";
+  formSuccess.value = "";
+  if (!accountForm.accountCode.trim() || !accountForm.accountName.trim()) {
+    formError.value = "账户编码和账户名称不能为空";
+    return;
+  }
+
+  saving.value = true;
+  try {
+    const method = isAccountCreating.value ? "POST" : "PUT";
+    const url = isAccountCreating.value ? "/api/accounts" : `/api/accounts/${accountEditingId.value}`;
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildAccountPayload())
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `保存账户失败: ${response.status}`);
+    }
+
+    await loadAll();
+    cancelAccountEditing();
+    showFormSuccess(isAccountCreating.value ? "新增账户成功" : "保存账户成功");
+  } catch (err) {
+    formError.value = err instanceof Error ? err.message : "保存账户失败";
   } finally {
     saving.value = false;
   }
@@ -1201,6 +1621,37 @@ async function deleteSnapshot(id) {
   }
 }
 
+async function deleteAccount(account) {
+  if (!account) {
+    return;
+  }
+
+  if (!window.confirm(`确认删除 ${account.accountName} 吗？已有历史记录的账户会被后端拦截。`)) {
+    return;
+  }
+
+  accountDeletingId.value = account.id;
+  formError.value = "";
+  formSuccess.value = "";
+  try {
+    const response = await fetch(`/api/accounts/${account.id}`, { method: "DELETE" });
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `删除账户失败: ${response.status}`);
+    }
+
+    if (accountEditingId.value === account.id) {
+      cancelAccountEditing();
+    }
+    await loadAll();
+    showFormSuccess("删除账户成功");
+  } catch (err) {
+    formError.value = err instanceof Error ? err.message : "删除账户失败";
+  } finally {
+    accountDeletingId.value = null;
+  }
+}
+
 function toggleSnapshot(id) {
   expandedId.value = expandedId.value === id ? null : id;
 }
@@ -1258,8 +1709,8 @@ function formTone(account) {
 
 <template>
   <div class="page-shell">
-    <main class="layout">
-      <section class="hero-card">
+    <main class="layout" :class="{ 'layout-wide layout-compact': currentPage === RECORD_ENTRY_PAGE }">
+      <section class="hero-card" :class="{ 'hero-card-compact': currentPage === RECORD_ENTRY_PAGE }">
         <div class="hero-top">
           <div>
             <p class="eyebrow">Personal Asset Snapshot</p>
@@ -1275,7 +1726,7 @@ function formTone(account) {
               }}</h1>
               <p v-if="currentPage === HOME_PAGE">净资产趋势图表</p>
               <p v-else-if="currentPage === SNAPSHOTS_PAGE">管理每日资产快照</p>
-              <p v-else-if="currentPage === RECORD_ENTRY_PAGE">按父账户折叠录入子账户金额，页面会自动汇总分类结果</p>
+              <p v-else-if="currentPage === RECORD_ENTRY_PAGE">父子账户同屏录入，页面会自动汇总分类结果</p>
               <p v-else-if="currentPage === ACCOUNT_LIST_PAGE">查看所有账户</p>
             </div>
           </div>
@@ -1508,7 +1959,7 @@ function formTone(account) {
             <div class="editor-detail-grid">
               <article
                 v-for="detail in snapshotForm.details"
-                :key="detail.accountCode"
+                :key="detail.accountId ?? detail.accountCode"
                 class="editor-detail-card"
                 :data-tone="formTone(detail)"
               >
@@ -1645,7 +2096,7 @@ function formTone(account) {
                   <div class="detail-grid">
                     <article
                       v-for="detail in snapshot.details"
-                      :key="`${snapshot.id}-${detail.accountCode}`"
+                      :key="`${snapshot.id}-${detail.accountId ?? detail.accountCode}`"
                       class="account-chip"
                       :data-tone="detailTone(detail)"
                     >
@@ -1671,12 +2122,40 @@ function formTone(account) {
               <h2>账户列表</h2>
               <p class="account-page-intro">只保留账户结构本身，按分类分组展示，展开后看对应子账户。</p>
             </div>
-            <span class="count-chip">{{ visibleAccounts.length }} 个</span>
+            <div class="button-row account-list-actions">
+              <button class="ghost-button small-button" type="button" @click="openCreateChildAccountForm()">
+                新增子账户
+              </button>
+              <button class="primary-button small-button" type="button" @click="openCreateAccountGroupForm">
+                新增账户组
+              </button>
+              <span class="count-chip">{{ visibleAccounts.length }} 个</span>
+            </div>
           </div>
 
           <div v-if="loading" class="state-panel">正在加载账户...</div>
           <div v-else-if="error" class="state-panel error">{{ error }}</div>
           <div v-else class="account-list-panel">
+            <div v-if="isAccountEditing" class="account-editor">
+              <div class="detail-head">
+                <div>
+                  <p class="eyebrow">Account Form</p>
+                  <h3>{{ isAccountCreating ? (accountForm.summaryAccount ? "新增账户组" : "新增子账户") : "编辑账户" }}</h3>
+                </div>
+                <div class="button-row">
+                  <button class="ghost-button" type="button" @click="cancelAccountEditing">取消</button>
+                  <button class="primary-button" type="button" :disabled="saving" @click="submitAccountForm">
+                    {{ saving ? "保存中..." : accountSubmitLabel }}
+                  </button>
+                </div>
+              </div>
+              <AccountEditor
+                :account-form="accountForm"
+                :summary-parent-options="summaryParentOptions"
+                :kind-locked="!isAccountCreating"
+              />
+            </div>
+
             <div v-if="visibleAccounts.length === 0" class="state-panel">
               当前没有可展示的账户
             </div>
@@ -1704,7 +2183,7 @@ function formTone(account) {
                       <div class="account-title-block">
                         <div class="account-list-tags">
                           <span class="account-list-tag">{{ group.label }}</span>
-                          <span class="account-list-tag muted">{{ root.summaryAccount ? "父账户" : "账户" }}</span>
+                          <span class="account-list-tag muted">{{ accountStructureLabel(root) }}</span>
                           <span v-if="!root.enabled" class="account-list-tag muted">停用</span>
                         </div>
                         <h3>{{ root.accountName }}</h3>
@@ -1719,14 +2198,35 @@ function formTone(account) {
                         <span v-else-if="root.remark">{{ root.remark }}</span>
                       </div>
 
-                      <button
-                        v-if="(group.itemsByParent.get(root.id) ?? []).length > 0"
-                        class="ghost-button small-button"
-                        type="button"
-                        @click="toggleAccountChildren(root.id)"
-                      >
-                        {{ isAccountExpanded(root.id) ? "收起子账户" : `展开子账户 (${(group.itemsByParent.get(root.id) ?? []).length})` }}
-                      </button>
+                      <div class="button-row account-row-actions">
+                        <button
+                          v-if="(group.itemsByParent.get(root.id) ?? []).length > 0"
+                          class="ghost-button small-button"
+                          type="button"
+                          @click="toggleAccountChildren(root.id)"
+                        >
+                          {{ isAccountExpanded(root.id) ? "收起子账户" : `展开子账户 (${(group.itemsByParent.get(root.id) ?? []).length})` }}
+                        </button>
+                        <button
+                          v-if="root.summaryAccount"
+                          class="ghost-button small-button"
+                          type="button"
+                          @click="openCreateChildAccountForm(root)"
+                        >
+                          新增子账户
+                        </button>
+                        <button class="ghost-button small-button" type="button" @click="openEditAccountForm(root)">
+                          编辑
+                        </button>
+                        <button
+                          class="danger-button small-button"
+                          type="button"
+                          :disabled="accountDeletingId === root.id"
+                          @click="deleteAccount(root)"
+                        >
+                          {{ accountDeletingId === root.id ? "删除中" : "删除" }}
+                        </button>
+                      </div>
                     </div>
 
                     <div
@@ -1746,9 +2246,23 @@ function formTone(account) {
                           <div class="account-meta-pills compact account-meta-inline">
                             <span>{{ child.accountType }}</span>
                             <span>{{ child.currencyCode }}</span>
+                            <span v-for="tag in child.tags ?? []" :key="`${child.id}-${tag}`">#{{ tag }}</span>
                             <span v-if="!child.enabled">停用</span>
                             <span v-if="child.institutionName">{{ child.institutionName }}</span>
                             <span v-else-if="child.remark">{{ child.remark }}</span>
+                          </div>
+                          <div class="button-row account-row-actions">
+                            <button class="ghost-button small-button" type="button" @click="openEditAccountForm(child)">
+                              编辑
+                            </button>
+                            <button
+                              class="danger-button small-button"
+                              type="button"
+                              :disabled="accountDeletingId === child.id"
+                              @click="deleteAccount(child)"
+                            >
+                              {{ accountDeletingId === child.id ? "删除中" : "删除" }}
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -1766,7 +2280,7 @@ function formTone(account) {
           <div class="record-entry-top">
             <div class="record-entry-title">
               <h2>录入台账</h2>
-              <p>父账户默认折叠，展开后填写子账户金额，页面自动汇总。</p>
+              <p>父账户默认展开，金额变动和统计概览尽量同屏呈现。</p>
             </div>
 
             <div class="record-entry-actions">
@@ -1828,7 +2342,7 @@ function formTone(account) {
               <div class="record-group-head">
                 <div>
                   <h3>{{ group.label }}</h3>
-                  <p>{{ group.roots.length }} 个父账户 / {{ recordEntryAccounts.filter((account) => account.categoryGroup === group.key).length }} 个可录入账户</p>
+                  <p>{{ group.roots.length }} 个父账户 / {{ recordEntryEnabledAccounts.filter((account) => account.categoryGroup === group.key).length }} 个账户</p>
                 </div>
                 <strong :class="summaryTone(recordEntryCategoryTotals[group.key])">{{ formatAmount(recordEntryCategoryTotals[group.key]) }}</strong>
               </div>
@@ -1838,7 +2352,7 @@ function formTone(account) {
                   v-for="root in group.roots"
                   :key="root.id"
                   class="record-parent-card"
-                  :class="{ expanded: isAccountExpanded(root.id) }"
+                  :class="{ expanded: isRecordEntryExpanded(root.id) }"
                 >
                   <div
                     v-if="hasRecordEntryChildren(root)"
@@ -1847,7 +2361,7 @@ function formTone(account) {
                     <button
                       class="record-parent-trigger"
                       type="button"
-                      @click="toggleAccountChildren(root.id)"
+                      @click="toggleRecordEntryChildren(root.id)"
                     >
                       <div class="record-parent-head">
                         <div class="record-parent-title">
@@ -1866,29 +2380,23 @@ function formTone(account) {
                         <div class="record-parent-meta">
                           <span>{{ root.currencyCode }}</span>
                           <span v-if="root.institutionName">{{ root.institutionName }}</span>
-                        <span>{{ recordEntryChildren(root).length }} 个子账户</span>
+                          <span>{{ recordEntryVisibleChildren(root).length }} 个子账户</span>
+                        </div>
                       </div>
-                    </div>
-                    <span class="record-parent-arrow">{{ isAccountExpanded(root.id) ? "收起" : "展开" }}</span>
+                      <span class="record-parent-arrow">{{ isRecordEntryExpanded(root.id) ? "收起" : "展开" }}</span>
                     </button>
                     <div class="record-parent-total">
-                      <input
-                        :value="recordEntryForm.amounts[root.accountCode]"
-                        class="record-amount-input"
-                        type="number"
-                        @wheel.prevent
-                        step="0.01"
-                        placeholder="0.00"
-                        @input="handleParentAmountInput(root.accountCode, $event.target.value)"
-                      />
-                      <span class="record-delta" :class="recordEntryDeltaTone(root)">{{ recordEntryDeltaLabel(root) }}</span>
+                      <strong class="record-computed-total">{{ formatAmount(recordEntryResolvedAmount(root), root.currencyCode) }}</strong>
+                      <span class="record-delta" :class="recordEntryDeltaTone(root)">
+                        {{ recordEntryDeltaLabel(root) }}
+                      </span>
                     </div>
                   </div>
 
                   <div v-else class="record-single-row">
                     <div class="record-account-cell">
                       <div class="record-parent-title-main">
-                        <strong>{{ root.accountName }}</strong>
+                        <strong>{{ recordEntryPrimaryInputAccount(root).accountName }}</strong>
                         <button
                           class="record-remark-toggle"
                           type="button"
@@ -1897,26 +2405,29 @@ function formTone(account) {
                           <span class="record-remark-icon">{{ isRemarkExpanded(root.id) ? "▾" : "▸" }}</span>
                         </button>
                       </div>
-                      <span>{{ root.accountCode }}</span>
+                      <span>{{ recordEntryPrimaryInputAccount(root).accountCode }}</span>
                     </div>
-                    <span class="record-currency-chip">{{ root.currencyCode }}</span>
+                    <span class="record-currency-chip">{{ recordEntryPrimaryInputAccount(root).currencyCode }}</span>
                     <div class="record-parent-total">
                       <input
-                        v-model="recordEntryForm.amounts[root.accountCode]"
+                        :value="recordEntryPrimaryInputValue(root)"
                         class="record-amount-input"
                         type="number"
                         @wheel.prevent
                         step="0.01"
                         placeholder="0.00"
+                        @input="handleRecordEntryPrimaryAmountInput(root, $event.target.value)"
                       />
-                      <span class="record-delta" :class="recordEntryDeltaTone(root)">{{ recordEntryDeltaLabel(root) }}</span>
+                      <span class="record-delta" :class="recordEntryDeltaTone(root)">
+                        {{ recordEntryDeltaLabel(root) }}
+                      </span>
                     </div>
                   </div>
 
                   <div class="record-parent-remark-wrap">
                     <label v-if="isRemarkExpanded(root.id)" class="field record-parent-remark">
                       <input
-                        v-model="recordEntryForm.parentRemarks[root.accountCode]"
+                        v-model="recordEntryForm.parentRemarks[accountKey(root)]"
                         type="text"
                         :placeholder="latestRecordDetail(root)?.remark || '填写本次父账户备注'"
                       />
@@ -1924,11 +2435,11 @@ function formTone(account) {
                   </div>
 
                   <div
-                    v-if="hasRecordEntryChildren(root) && isAccountExpanded(root.id)"
+                    v-if="hasRecordEntryChildren(root) && isRecordEntryExpanded(root.id)"
                     class="record-child-list"
                   >
                     <label
-                      v-for="child in recordEntryChildren(root)"
+                      v-for="child in recordEntryVisibleChildren(root)"
                       :key="child.id"
                       class="record-child-row"
                     >
@@ -1939,7 +2450,7 @@ function formTone(account) {
                       <span class="record-currency-chip">{{ child.currencyCode }}</span>
                       <div class="record-parent-total">
                         <input
-                          v-model="recordEntryForm.amounts[child.accountCode]"
+                          v-model="recordEntryForm.amounts[accountKey(child)]"
                           class="record-amount-input"
                           type="number"
                           @wheel.prevent
@@ -1966,6 +2477,72 @@ function formTone(account) {
             </label>
           </div>
 
+          <section class="record-tag-overview">
+            <div class="record-tag-head">
+              <h3>标签汇总</h3>
+              <div class="record-tag-head-actions">
+                <span>{{ recordEntryTagTotals.length }} 个标签</span>
+                <button
+                  v-if="recordEntryTagTotals.length > 0"
+                  class="record-tag-toggle"
+                  type="button"
+                  @click="toggleAllRecordTags"
+                >
+                  {{ areAllRecordTagsExpanded ? "全部收起" : "全部展开" }}
+                </button>
+              </div>
+            </div>
+            <div v-if="recordEntryTagTotals.length > 0" class="record-tag-list">
+              <article
+                v-for="item in recordEntryTagTotals"
+                :key="item.tag"
+                class="record-tag-card"
+                :class="{ expanded: isRecordTagExpanded(item.tag) }"
+              >
+                <div class="record-tag-card-main">
+                  <div class="record-tag-title">
+                    <span>#{{ item.tag }}</span>
+                    <small>{{ item.accountCount }} 个子账户</small>
+                  </div>
+                  <strong :class="summaryTone(item.total)">{{ formatAmount(item.total) }}</strong>
+                  <button class="record-tag-toggle" type="button" @click="toggleRecordTag(item.tag)">
+                    {{ isRecordTagExpanded(item.tag) ? "收起" : "展开" }}
+                  </button>
+                </div>
+                <div v-if="isRecordTagExpanded(item.tag)" class="record-tag-account-list">
+                  <div
+                    v-for="entry in item.accounts"
+                    :key="`${item.tag}-${entry.account.id}`"
+                    class="record-tag-account-row"
+                  >
+                    <div>
+                      <strong>{{ entry.account.accountName }}</strong>
+                      <span>{{ entry.account.accountCode }}</span>
+                    </div>
+                    <em :class="summaryTone(entry.amount)">{{ formatAmount(entry.amount) }}</em>
+                  </div>
+                  <label class="record-tag-adjustment-row">
+                    <div>
+                      <strong>临时调整</strong>
+                      <span>原汇总 {{ formatAmount(item.baseTotal) }}，仅当前页面生效</span>
+                    </div>
+                    <div class="record-tag-adjustment-control">
+                      <span>±</span>
+                      <input
+                        v-model="recordEntryTagAdjustments[item.tag]"
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        @wheel.prevent
+                      />
+                    </div>
+                  </label>
+                </div>
+              </article>
+            </div>
+            <p v-else class="record-change-empty-panel">暂无带标签的子账户</p>
+          </section>
+
           <section class="record-change-overview">
             <div class="record-change-head">
               <div>
@@ -1974,8 +2551,12 @@ function formTone(account) {
                 <p v-else>选定日期之前暂无记录，保存下一次后这里会展示变化对比。</p>
               </div>
               <div v-if="previousRecordSnapshot" class="record-change-counts">
-                <span>{{ recordEntryChangeOverview.increases.length }} 项增加</span>
-                <span>{{ recordEntryChangeOverview.decreases.length }} 项减少</span>
+                <span class="positive">
+                  {{ recordEntryChangeOverview.increases.length }} 项增加 · +{{ formatAmount(recordEntryChangeOverview.totalIncrease) }}
+                </span>
+                <span class="negative">
+                  {{ recordEntryChangeOverview.decreases.length }} 项减少 · -{{ formatAmount(recordEntryChangeOverview.totalDecrease) }}
+                </span>
                 <span>{{ recordEntryChangeOverview.unchanged }} 项无变化</span>
               </div>
             </div>
@@ -1988,13 +2569,13 @@ function formTone(account) {
                 </div>
                 <div v-if="recordEntryChangeOverview.increases.length > 0" class="record-change-list">
                   <div
-                    v-for="item in recordEntryChangeOverview.increases.slice(0, 6)"
-                    :key="`increase-${item.account.accountCode}`"
+                    v-for="item in recordEntryChangeOverview.increases"
+                    :key="`increase-${item.account.id}`"
                     class="record-change-row"
                   >
                     <div class="record-change-account">
-                      <strong>{{ item.account.accountName }}</strong>
-                      <span>{{ categoryGroupLabel(item.account.categoryGroup) }} / {{ item.account.accountCode }}</span>
+                      <strong>{{ item.displayAccount.accountName }}</strong>
+                      <span>{{ categoryGroupLabel(item.displayAccount.categoryGroup) }} / {{ item.displayAccount.accountCode }}</span>
                     </div>
                     <div class="record-change-amount positive">
                       +{{ formatAmount(Math.abs(item.delta)) }}
@@ -2012,13 +2593,13 @@ function formTone(account) {
                 </div>
                 <div v-if="recordEntryChangeOverview.decreases.length > 0" class="record-change-list">
                   <div
-                    v-for="item in recordEntryChangeOverview.decreases.slice(0, 6)"
-                    :key="`decrease-${item.account.accountCode}`"
+                    v-for="item in recordEntryChangeOverview.decreases"
+                    :key="`decrease-${item.account.id}`"
                     class="record-change-row"
                   >
                     <div class="record-change-account">
-                      <strong>{{ item.account.accountName }}</strong>
-                      <span>{{ categoryGroupLabel(item.account.categoryGroup) }} / {{ item.account.accountCode }}</span>
+                      <strong>{{ item.displayAccount.accountName }}</strong>
+                      <span>{{ categoryGroupLabel(item.displayAccount.categoryGroup) }} / {{ item.displayAccount.accountCode }}</span>
                     </div>
                     <div class="record-change-amount negative">
                       -{{ formatAmount(Math.abs(item.delta)) }}

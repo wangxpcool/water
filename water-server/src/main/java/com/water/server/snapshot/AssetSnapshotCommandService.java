@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Types;
@@ -116,6 +117,7 @@ public class AssetSnapshotCommandService {
         }
 
         jdbcTemplate.update("DELETE FROM asset_snapshot_detail WHERE snapshot_id = ?", id);
+        jdbcTemplate.update("DELETE FROM asset_snapshot_group_detail WHERE snapshot_id = ?", id);
         saveDetails(id, aggregate.persistedDetails());
         return assetSnapshotQueryService.findSnapshotById(id);
     }
@@ -123,6 +125,7 @@ public class AssetSnapshotCommandService {
     @Transactional
     public void deleteSnapshot(long id) {
         jdbcTemplate.update("DELETE FROM asset_snapshot_detail WHERE snapshot_id = ?", id);
+        jdbcTemplate.update("DELETE FROM asset_snapshot_group_detail WHERE snapshot_id = ?", id);
         int deletedSnapshots = jdbcTemplate.update("DELETE FROM asset_snapshot WHERE id = ?", id);
         if (deletedSnapshots == 0) {
             throw notFound(id);
@@ -141,12 +144,13 @@ public class AssetSnapshotCommandService {
     }
 
     private SnapshotAggregate buildAggregate(AssetSnapshotUpsertRequest request, List<AssetAccountOptionDto> accounts) {
-        Map<String, AssetAccountOptionDto> accountMap = accounts.stream()
-                .collect(Collectors.toMap(
+        Map<Long, AssetAccountOptionDto> accountsById = accounts.stream()
+                .collect(Collectors.toMap(AssetAccountOptionDto::id, account -> account, (left, right) -> left, LinkedHashMap::new));
+        Map<String, List<AssetAccountOptionDto>> accountsByCode = accounts.stream()
+                .collect(Collectors.groupingBy(
                         AssetAccountOptionDto::accountCode,
-                        account -> account,
-                        (left, right) -> left,
-                        LinkedHashMap::new
+                        LinkedHashMap::new,
+                        Collectors.toList()
                 ));
         Map<Long, List<AssetAccountOptionDto>> childrenByParent = accounts.stream()
                 .filter(account -> account.parentAccountId() != null)
@@ -156,10 +160,11 @@ public class AssetSnapshotCommandService {
                         Collectors.toList()
                 ));
 
-        List<AssetSnapshotDetailUpsertRequest> normalizedInput = normalizeInputDetails(request.details(), accountMap);
+        List<NormalizedInputDetail> normalizedInput = normalizeInputDetails(request.details(), accountsById, accountsByCode);
         Map<Long, PersistedDetail> persistedByAccountId = new LinkedHashMap<>();
-        for (AssetSnapshotDetailUpsertRequest detail : normalizedInput) {
-            AssetAccountOptionDto account = accountMap.get(detail.accountCode());
+        for (NormalizedInputDetail normalized : normalizedInput) {
+            AssetSnapshotDetailUpsertRequest detail = normalized.detail();
+            AssetAccountOptionDto account = normalized.account();
             persistedByAccountId.put(account.id(), new PersistedDetail(
                     account.id(),
                     detail.amount(),
@@ -189,7 +194,7 @@ public class AssetSnapshotCommandService {
                 continue;
             }
 
-            BigDecimal amount = detail.amount();
+            BigDecimal amount = amountInReportingCurrency(detail, account);
             if ("DEBT".equals(account.balanceDirection())) {
                 liabilityTotal = liabilityTotal.add(amount);
             } else {
@@ -216,9 +221,10 @@ public class AssetSnapshotCommandService {
         );
     }
 
-    private List<AssetSnapshotDetailUpsertRequest> normalizeInputDetails(
+    private List<NormalizedInputDetail> normalizeInputDetails(
             List<AssetSnapshotDetailUpsertRequest> details,
-            Map<String, AssetAccountOptionDto> accountMap
+            Map<Long, AssetAccountOptionDto> accountsById,
+            Map<String, List<AssetAccountOptionDto>> accountsByCode
     ) {
         if (details == null || details.isEmpty()) {
             return List.of();
@@ -229,17 +235,41 @@ public class AssetSnapshotCommandService {
                 .filter(detail -> detail.amount() != null)
                 .toList();
 
-        validateDuplicateAccounts(normalized);
-
+        List<NormalizedInputDetail> resolved = new ArrayList<>();
         for (AssetSnapshotDetailUpsertRequest detail : normalized) {
-            String accountCode = blankToNull(detail.accountCode());
-            AssetAccountOptionDto account = accountMap.get(accountCode);
-            if (account == null) {
-                throw new ResponseStatusException(CONFLICT, "Unknown accountCode: " + detail.accountCode());
-            }
+            resolved.add(new NormalizedInputDetail(detail, resolveInputAccount(detail, accountsById, accountsByCode)));
         }
 
-        return normalized;
+        validateDuplicateAccounts(resolved);
+        return resolved;
+    }
+
+    private AssetAccountOptionDto resolveInputAccount(
+            AssetSnapshotDetailUpsertRequest detail,
+            Map<Long, AssetAccountOptionDto> accountsById,
+            Map<String, List<AssetAccountOptionDto>> accountsByCode
+    ) {
+        if (detail.accountId() != null) {
+            AssetAccountOptionDto account = accountsById.get(detail.accountId());
+            if (account == null) {
+                throw new ResponseStatusException(CONFLICT, "Unknown accountId: " + detail.accountId());
+            }
+            return account;
+        }
+
+        String accountCode = blankToNull(detail.accountCode());
+        if (accountCode == null) {
+            throw new ResponseStatusException(CONFLICT, "detail.accountId or detail.accountCode is required");
+        }
+
+        List<AssetAccountOptionDto> matches = accountsByCode.getOrDefault(accountCode, List.of());
+        if (matches.isEmpty()) {
+            throw new ResponseStatusException(CONFLICT, "Unknown accountCode: " + detail.accountCode());
+        }
+        if (matches.size() > 1) {
+            throw new ResponseStatusException(CONFLICT, "Ambiguous accountCode, submit accountId: " + detail.accountCode());
+        }
+        return matches.get(0);
     }
 
     private PersistedDetail computeSummaryDetail(
@@ -248,13 +278,13 @@ public class AssetSnapshotCommandService {
             Map<Long, PersistedDetail> persistedByAccountId
     ) {
         PersistedDetail existing = persistedByAccountId.get(account.id());
-        if (existing != null || !Boolean.TRUE.equals(account.summaryAccount())) {
+        if (!Boolean.TRUE.equals(account.summaryAccount())) {
             return existing;
         }
 
-        List<AssetAccountOptionDto> children = childrenByParent.getOrDefault(account.id(), List.of());
+        List<AssetAccountOptionDto> children = rollupChildren(account, childrenByParent.getOrDefault(account.id(), List.of()));
         if (children.isEmpty()) {
-            return null;
+            return existing;
         }
 
         BigDecimal sum = null;
@@ -263,11 +293,12 @@ public class AssetSnapshotCommandService {
             if (childDetail == null || childDetail.amount() == null) {
                 continue;
             }
-            sum = sum == null ? childDetail.amount() : sum.add(childDetail.amount());
+            BigDecimal childAmount = amountInReportingCurrency(childDetail, child);
+            sum = sum == null ? childAmount : sum.add(childAmount);
         }
 
         if (sum == null) {
-            return null;
+            return existing;
         }
 
         PersistedDetail summary = new PersistedDetail(
@@ -283,12 +314,35 @@ public class AssetSnapshotCommandService {
         return summary;
     }
 
-    private void saveDetails(long snapshotId, List<PersistedDetail> details) {
-        if (details.isEmpty()) {
-            return;
+    private List<AssetAccountOptionDto> rollupChildren(AssetAccountOptionDto account, List<AssetAccountOptionDto> children) {
+        if (children.size() <= 1) {
+            return children;
         }
 
-        jdbcTemplate.batchUpdate("""
+        List<AssetAccountOptionDto> withoutSameCodeMirror = children.stream()
+                .filter(child -> !Objects.equals(child.accountCode(), account.accountCode()))
+                .toList();
+        return withoutSameCodeMirror.isEmpty() ? children : withoutSameCodeMirror;
+    }
+
+    private BigDecimal amountInReportingCurrency(PersistedDetail detail, AssetAccountOptionDto account) {
+        String currencyCode = normalizeCurrencyCode(detail.currencyCode(), account.currencyCode());
+        if ("HKD".equals(currencyCode)) {
+            return detail.amount().multiply(new BigDecimal("0.87")).setScale(1, RoundingMode.HALF_UP);
+        }
+        return detail.amount();
+    }
+
+    private void saveDetails(long snapshotId, List<PersistedDetail> details) {
+        List<PersistedDetail> accountDetails = details.stream()
+                .filter(detail -> !isGroupDetail(detail))
+                .toList();
+        List<PersistedDetail> groupDetails = details.stream()
+                .filter(this::isGroupDetail)
+                .toList();
+
+        if (!accountDetails.isEmpty()) {
+            jdbcTemplate.batchUpdate("""
                 INSERT INTO asset_snapshot_detail (
                     snapshot_id,
                     account_id,
@@ -300,32 +354,57 @@ public class AssetSnapshotCommandService {
                     remark,
                     updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, details, details.size(), (ps, detail) -> {
-            ps.setLong(1, snapshotId);
-            ps.setLong(2, detail.accountId());
-            ps.setBigDecimal(3, detail.amount());
-            if (detail.originalAmount() == null) {
-                ps.setNull(4, Types.NUMERIC);
-            } else {
-                ps.setBigDecimal(4, detail.originalAmount());
-            }
-            ps.setString(5, detail.currencyCode());
-            ps.setString(6, detail.amountSource());
-            ps.setInt(7, detail.computed() ? 1 : 0);
-            ps.setString(8, detail.remark());
-        });
+                """, accountDetails, accountDetails.size(), (ps, detail) -> bindPersistedDetail(ps, snapshotId, detail, false));
+        }
+
+        if (!groupDetails.isEmpty()) {
+            jdbcTemplate.batchUpdate("""
+                INSERT INTO asset_snapshot_group_detail (
+                    snapshot_id,
+                    group_id,
+                    amount,
+                    original_amount,
+                    currency_code,
+                    amount_source,
+                    is_computed,
+                    remark,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, groupDetails, groupDetails.size(), (ps, detail) -> bindPersistedDetail(ps, snapshotId, detail, true));
+        }
     }
 
-    private void validateDuplicateAccounts(List<AssetSnapshotDetailUpsertRequest> details) {
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (AssetSnapshotDetailUpsertRequest detail : details) {
-            String accountCode = blankToNull(detail.accountCode());
-            if (accountCode == null) {
-                throw new ResponseStatusException(CONFLICT, "detail.accountCode is required");
-            }
-            counts.merge(accountCode, 1, Integer::sum);
-            if (counts.get(accountCode) > 1) {
-                throw new ResponseStatusException(CONFLICT, "Duplicate accountCode in details: " + accountCode);
+    private void bindPersistedDetail(
+            PreparedStatement statement,
+            long snapshotId,
+            PersistedDetail detail,
+            boolean groupDetail
+    ) throws java.sql.SQLException {
+        statement.setLong(1, snapshotId);
+        statement.setLong(2, groupDetail ? Math.abs(detail.accountId()) : detail.accountId());
+        statement.setBigDecimal(3, detail.amount());
+        if (detail.originalAmount() == null) {
+            statement.setNull(4, Types.NUMERIC);
+        } else {
+            statement.setBigDecimal(4, detail.originalAmount());
+        }
+        statement.setString(5, detail.currencyCode());
+        statement.setString(6, detail.amountSource());
+        statement.setInt(7, detail.computed() ? 1 : 0);
+        statement.setString(8, detail.remark());
+    }
+
+    private boolean isGroupDetail(PersistedDetail detail) {
+        return detail.accountId() < 0;
+    }
+
+    private void validateDuplicateAccounts(List<NormalizedInputDetail> details) {
+        Map<Long, Integer> counts = new LinkedHashMap<>();
+        for (NormalizedInputDetail detail : details) {
+            Long accountId = detail.account().id();
+            counts.merge(accountId, 1, Integer::sum);
+            if (counts.get(accountId) > 1) {
+                throw new ResponseStatusException(CONFLICT, "Duplicate accountId in details: " + accountId);
             }
         }
     }
@@ -383,6 +462,12 @@ public class AssetSnapshotCommandService {
             String amountSource,
             boolean computed,
             String remark
+    ) {
+    }
+
+    private record NormalizedInputDetail(
+            AssetSnapshotDetailUpsertRequest detail,
+            AssetAccountOptionDto account
     ) {
     }
 

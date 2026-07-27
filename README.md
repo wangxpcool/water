@@ -50,6 +50,12 @@ water/
 
 ### 1. 启动后端
 
+先确认 Maven 使用 Java 17。Windows PowerShell 可以临时指定：
+
+```powershell
+$env:JAVA_HOME="C:\Program Files\Java\jdk-17"
+```
+
 在仓库根目录执行：
 
 ```bash
@@ -63,10 +69,10 @@ mvn spring-boot:run
 http://localhost:8080
 ```
 
-后端默认连接的数据库路径写在 `water-server/src/main/resources/application.yml` 中：
+后端会自动在当前目录和上一级目录查找 `water.db`，通常从仓库根目录或 `water-server` 目录启动都能找到。也可以通过 `WATER_DB_PATH` 覆盖。Windows PowerShell 示例：
 
-```text
-C:/Users/wangx/Desktop/peisonal/water/water.db
+```powershell
+$env:WATER_DB_PATH="..\water.db"
 ```
 
 ### 2. 启动前端

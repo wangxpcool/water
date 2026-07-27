@@ -7,6 +7,10 @@ defineProps({
   summaryParentOptions: {
     type: Array,
     required: true
+  },
+  kindLocked: {
+    type: Boolean,
+    default: false
   }
 });
 </script>
@@ -24,9 +28,9 @@ defineProps({
     <label class="field">
       <span>分类</span>
       <select v-model="accountForm.categoryGroup">
-        <option value="CASH">CASH</option>
-        <option value="INVESTMENT">INVESTMENT</option>
-        <option value="LIABILITY">LIABILITY</option>
+        <option value="CASH">现金</option>
+        <option value="INVESTMENT">投资</option>
+        <option value="LIABILITY">借贷</option>
       </select>
     </label>
     <label class="field">
@@ -34,7 +38,7 @@ defineProps({
       <input v-model="accountForm.accountType" type="text" />
     </label>
     <label class="field">
-      <span>父账户</span>
+      <span>所属账户组</span>
       <select v-model="accountForm.parentAccountId" :disabled="accountForm.summaryAccount">
         <option value="">无</option>
         <option v-for="account in summaryParentOptions" :key="account.id" :value="String(account.id)">
@@ -43,14 +47,14 @@ defineProps({
       </select>
     </label>
     <label class="field switch-field">
-      <span>汇总账户</span>
-      <input v-model="accountForm.summaryAccount" type="checkbox" />
+      <span>账户组</span>
+      <input v-model="accountForm.summaryAccount" type="checkbox" :disabled="kindLocked" />
     </label>
     <label class="field">
       <span>方向</span>
       <select v-model="accountForm.balanceDirection">
-        <option value="ASSET">ASSET</option>
-        <option value="DEBT">DEBT</option>
+        <option value="ASSET">资产</option>
+        <option value="DEBT">负债</option>
       </select>
     </label>
     <label class="field">
@@ -74,6 +78,15 @@ defineProps({
       <input v-model="accountForm.ownerName" type="text" />
     </label>
     <label class="field field-wide">
+      <span>标签</span>
+      <input
+        v-model="accountForm.tagsText"
+        type="text"
+        :disabled="accountForm.summaryAccount"
+        placeholder="仅子账户使用，多个标签用逗号分隔"
+      />
+    </label>
+    <label class="field field-wide">
       <span>备注</span>
       <input v-model="accountForm.remark" type="text" />
     </label>
@@ -84,6 +97,6 @@ defineProps({
   </div>
 
   <div class="form-inline-note">
-    负债类账户（例如待还信用卡）请设置为 `LIABILITY + DEBT`，录入金额时填写正数，系统会在计算净资产时自动扣减。
+    账户组用于汇总展示和保存组级金额；子账户可以挂到某个账户组下，并用标签标记用途、平台或风险类型。
   </div>
 </template>

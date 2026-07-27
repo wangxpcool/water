@@ -1,6 +1,7 @@
 package com.water.server.snapshot;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 public record AssetAccountOptionDto(
         Long id,
@@ -17,6 +18,7 @@ public record AssetAccountOptionDto(
         String remark,
         Integer sortOrder,
         Boolean enabled,
+        List<String> tags,
         BigDecimal latestAmount
 ) {
 }

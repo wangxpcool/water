@@ -28,6 +28,9 @@ class AssetSnapshotCommandServiceTests {
     @Autowired
     private AssetSnapshotQueryService assetSnapshotQueryService;
 
+    @Autowired
+    private AssetAccountCommandService assetAccountCommandService;
+
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + DB_PATH.toAbsolutePath());
@@ -47,10 +50,10 @@ class AssetSnapshotCommandServiceTests {
                 "first note",
                 "first remark",
                 List.of(
-                        new AssetSnapshotDetailUpsertRequest("ALIPAY", new BigDecimal("20.5"), null, "CNY", null),
-                        new AssetSnapshotDetailUpsertRequest("DEFAULT_BANK_CARD", new BigDecimal("80.0"), null, "CNY", null),
-                        new AssetSnapshotDetailUpsertRequest("US_STOCK_ACCOUNT", new BigDecimal("12.8"), null, "USD", "broker"),
-                        new AssetSnapshotDetailUpsertRequest("CREDIT_CARD_DUE", new BigDecimal("30"), null, "CNY", null)
+                        new AssetSnapshotDetailUpsertRequest(null, "ALIPAY", new BigDecimal("20.5"), null, "CNY", null),
+                        new AssetSnapshotDetailUpsertRequest(null, "DEFAULT_BANK_CARD", new BigDecimal("80.0"), null, "CNY", null),
+                        new AssetSnapshotDetailUpsertRequest(null, "US_STOCK_ACCOUNT", new BigDecimal("12.8"), null, "USD", "broker"),
+                        new AssetSnapshotDetailUpsertRequest(null, "CREDIT_CARD_DUE", new BigDecimal("30"), null, "CNY", null)
                 )
         ));
 
@@ -78,9 +81,9 @@ class AssetSnapshotCommandServiceTests {
                 "updated note",
                 "updated remark",
                 List.of(
-                        new AssetSnapshotDetailUpsertRequest("WECHAT", new BigDecimal("8.6"), null, "CNY", null),
-                        new AssetSnapshotDetailUpsertRequest("HOUSING_FUND", new BigDecimal("98"), null, "CNY", "reserve"),
-                        new AssetSnapshotDetailUpsertRequest("INVESTMENT_LOSS", new BigDecimal("4"), null, "CNY", null)
+                        new AssetSnapshotDetailUpsertRequest(null, "WECHAT", new BigDecimal("8.6"), null, "CNY", null),
+                        new AssetSnapshotDetailUpsertRequest(null, "HOUSING_FUND", new BigDecimal("98"), null, "CNY", "reserve"),
+                        new AssetSnapshotDetailUpsertRequest(null, "INVESTMENT_LOSS", new BigDecimal("4"), null, "CNY", null)
                 )
         ));
 
@@ -102,6 +105,168 @@ class AssetSnapshotCommandServiceTests {
 
         assertFalse(assetSnapshotQueryService.findAllSnapshots().stream()
                 .anyMatch(snapshot -> snapshot.id().equals(created.id())));
+    }
+
+    @Test
+    void savesSameCodeGroupAndChildByAccountId() {
+        AssetAccountOptionDto group = assetAccountCommandService.createAccount(new AssetAccountUpsertRequest(
+                "MIRROR_PAY",
+                "Mirror Pay",
+                "CASH",
+                "EWALLET",
+                null,
+                true,
+                "ASSET",
+                "CNY",
+                null,
+                null,
+                null,
+                1600,
+                true,
+                null
+        ));
+        AssetAccountOptionDto child = assetAccountCommandService.createAccount(new AssetAccountUpsertRequest(
+                "MIRROR_PAY",
+                "Mirror Pay",
+                "CASH",
+                "EWALLET",
+                group.id(),
+                false,
+                "ASSET",
+                "HKD",
+                null,
+                null,
+                null,
+                1601,
+                true,
+                List.of("same-code")
+        ));
+
+        AssetSnapshotResponse created = assetSnapshotCommandService.createSnapshot(new AssetSnapshotUpsertRequest(
+                LocalDate.of(2026, 4, 1),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "same code",
+                null,
+                List.of(
+                        new AssetSnapshotDetailUpsertRequest(group.id(), group.accountCode(), new BigDecimal("12.3"), null, "CNY", null),
+                        new AssetSnapshotDetailUpsertRequest(child.id(), child.accountCode(), new BigDecimal("12.3"), null, "CNY", null)
+                )
+        ));
+
+        assertEquals(new BigDecimal("12.3"), created.cashTotal());
+        assertEquals(new BigDecimal("12.3"), created.grossAccountValue());
+        assertTrue(created.details().stream().anyMatch(detail ->
+                detail.accountId().equals(group.id())
+                        && detail.accountCode().equals("MIRROR_PAY")
+                        && Boolean.TRUE.equals(detail.summaryAccount())
+        ));
+        assertTrue(created.details().stream().anyMatch(detail ->
+                detail.accountId().equals(child.id())
+                        && detail.accountCode().equals("MIRROR_PAY")
+                        && Boolean.FALSE.equals(detail.summaryAccount())
+                        && detail.parentAccountId().equals(group.id())
+        ));
+    }
+
+    @Test
+    void rollsUpChildBreakdownInsteadOfUsingStaleGroupAmount() {
+        AssetAccountOptionDto group = assetAccountCommandService.createAccount(new AssetAccountUpsertRequest(
+                "ROLLUP_GROUP",
+                "Rollup Group",
+                "CASH",
+                "BANK_CARD",
+                null,
+                true,
+                "ASSET",
+                "CNY",
+                null,
+                null,
+                null,
+                1700,
+                true,
+                null
+        ));
+        AssetAccountOptionDto sameCodeMirror = assetAccountCommandService.createAccount(new AssetAccountUpsertRequest(
+                "ROLLUP_GROUP",
+                "Rollup Group Mirror",
+                "CASH",
+                "BANK_CARD",
+                group.id(),
+                false,
+                "ASSET",
+                "CNY",
+                null,
+                null,
+                null,
+                1701,
+                true,
+                null
+        ));
+        AssetAccountOptionDto childA = assetAccountCommandService.createAccount(new AssetAccountUpsertRequest(
+                "ROLLUP_CHILD_A",
+                "Rollup Child A",
+                "CASH",
+                "BANK_CARD",
+                group.id(),
+                false,
+                "ASSET",
+                "CNY",
+                null,
+                null,
+                null,
+                1702,
+                true,
+                null
+        ));
+        AssetAccountOptionDto childB = assetAccountCommandService.createAccount(new AssetAccountUpsertRequest(
+                "ROLLUP_CHILD_B",
+                "Rollup Child B",
+                "CASH",
+                "BANK_CARD",
+                group.id(),
+                false,
+                "ASSET",
+                "CNY",
+                null,
+                null,
+                null,
+                1703,
+                true,
+                null
+        ));
+
+        AssetSnapshotResponse created = assetSnapshotCommandService.createSnapshot(new AssetSnapshotUpsertRequest(
+                LocalDate.of(2026, 4, 2),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "rollup",
+                null,
+                List.of(
+                        new AssetSnapshotDetailUpsertRequest(group.id(), group.accountCode(), new BigDecimal("100"), null, "CNY", null),
+                        new AssetSnapshotDetailUpsertRequest(sameCodeMirror.id(), sameCodeMirror.accountCode(), new BigDecimal("100"), null, "CNY", null),
+                        new AssetSnapshotDetailUpsertRequest(childA.id(), childA.accountCode(), new BigDecimal("2"), null, "CNY", null),
+                        new AssetSnapshotDetailUpsertRequest(childB.id(), childB.accountCode(), new BigDecimal("10"), null, "HKD", null)
+                )
+        ));
+
+        assertEquals(new BigDecimal("10.7"), created.cashTotal());
+        assertEquals(new BigDecimal("10.7"), created.grossAccountValue());
+        assertEquals(new BigDecimal("10.7"), created.netWorth());
+        assertTrue(created.details().stream().anyMatch(detail ->
+                detail.accountId().equals(group.id())
+                        && new BigDecimal("10.7").compareTo(detail.amount()) == 0
+                        && Boolean.TRUE.equals(detail.computed())
+                        && "ROLLED_UP".equals(detail.amountSource())
+        ));
     }
 
     private static Path createTempDbPath() {

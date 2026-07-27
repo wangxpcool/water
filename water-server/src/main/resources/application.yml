@@ -2,7 +2,6 @@ spring:
   application:
     name: water-server
   datasource:
-    url: jdbc:sqlite:${WATER_DB_PATH:../water/water.db}
     driver-class-name: org.sqlite.JDBC
   sql:
     init:

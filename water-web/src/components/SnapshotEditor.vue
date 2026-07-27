@@ -77,7 +77,7 @@ defineProps({
     <div class="editor-detail-grid snapshot-editor-grid">
       <article
         v-for="detail in snapshotForm.details"
-        :key="detail.accountCode"
+        :key="detail.accountId ?? detail.accountCode"
         class="editor-detail-card snapshot-editor-card"
         :data-tone="formTone(detail)"
       >

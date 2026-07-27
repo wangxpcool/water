@@ -13,12 +13,41 @@ CREATE TABLE IF NOT EXISTS currency_config (
 CREATE UNIQUE INDEX IF NOT EXISTS uk_currency_config_code
     ON currency_config (currency_code);
 
+CREATE TABLE IF NOT EXISTS asset_account_group (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_code TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    category_group TEXT NOT NULL,
+    account_type TEXT NOT NULL,
+    balance_direction TEXT NOT NULL,
+    currency_code TEXT NOT NULL,
+    institution_name TEXT,
+    owner_name TEXT,
+    remark TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    migrated_account_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_asset_account_group_code
+    ON asset_account_group (group_code);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_asset_account_group_migrated_account
+    ON asset_account_group (migrated_account_id)
+    WHERE migrated_account_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_asset_account_group_category
+    ON asset_account_group (category_group);
+
 CREATE TABLE IF NOT EXISTS asset_account (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_code TEXT NOT NULL,
     account_name TEXT NOT NULL,
     category_group TEXT NOT NULL,
     account_type TEXT NOT NULL,
+    group_id INTEGER,
     parent_account_id INTEGER,
     is_summary INTEGER NOT NULL DEFAULT 0,
     balance_direction TEXT NOT NULL,
@@ -26,6 +55,7 @@ CREATE TABLE IF NOT EXISTS asset_account (
     institution_name TEXT,
     owner_name TEXT,
     remark TEXT,
+    tags TEXT,
     sort_order INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -46,6 +76,9 @@ CREATE INDEX IF NOT EXISTS idx_asset_account_currency
 
 CREATE INDEX IF NOT EXISTS idx_asset_account_parent
     ON asset_account (parent_account_id);
+
+CREATE INDEX IF NOT EXISTS idx_asset_account_group_id
+    ON asset_account (group_id);
 
 CREATE TABLE IF NOT EXISTS asset_snapshot (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,6 +129,29 @@ CREATE INDEX IF NOT EXISTS idx_asset_snapshot_detail_account
 
 CREATE INDEX IF NOT EXISTS idx_asset_snapshot_detail_currency
     ON asset_snapshot_detail (currency_code);
+
+CREATE TABLE IF NOT EXISTS asset_snapshot_group_detail (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    group_id INTEGER NOT NULL,
+    amount NUMERIC NOT NULL,
+    original_amount NUMERIC,
+    currency_code TEXT NOT NULL,
+    amount_source TEXT NOT NULL DEFAULT 'MANUAL',
+    is_computed INTEGER NOT NULL DEFAULT 0,
+    remark TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_asset_snapshot_group_detail_snapshot_group
+    ON asset_snapshot_group_detail (snapshot_id, group_id);
+
+CREATE INDEX IF NOT EXISTS idx_asset_snapshot_group_detail_snapshot
+    ON asset_snapshot_group_detail (snapshot_id);
+
+CREATE INDEX IF NOT EXISTS idx_asset_snapshot_group_detail_group
+    ON asset_snapshot_group_detail (group_id);
 
 INSERT OR IGNORE INTO currency_config (
     currency_code,

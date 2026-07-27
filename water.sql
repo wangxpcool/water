@@ -15,12 +15,41 @@ CREATE TABLE IF NOT EXISTS currency_config (
 CREATE UNIQUE INDEX IF NOT EXISTS uk_currency_config_code
     ON currency_config (currency_code);
 
+CREATE TABLE IF NOT EXISTS asset_account_group (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_code TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    category_group TEXT NOT NULL,
+    account_type TEXT NOT NULL,
+    balance_direction TEXT NOT NULL,
+    currency_code TEXT NOT NULL,
+    institution_name TEXT,
+    owner_name TEXT,
+    remark TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    migrated_account_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_asset_account_group_code
+    ON asset_account_group (group_code);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_asset_account_group_migrated_account
+    ON asset_account_group (migrated_account_id)
+    WHERE migrated_account_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_asset_account_group_category
+    ON asset_account_group (category_group);
+
 CREATE TABLE IF NOT EXISTS asset_account (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_code TEXT NOT NULL,
     account_name TEXT NOT NULL,
     category_group TEXT NOT NULL,
     account_type TEXT NOT NULL,
+    group_id INTEGER,
     parent_account_id INTEGER,
     is_summary INTEGER NOT NULL DEFAULT 0,
     balance_direction TEXT NOT NULL,
@@ -28,6 +57,7 @@ CREATE TABLE IF NOT EXISTS asset_account (
     institution_name TEXT,
     owner_name TEXT,
     remark TEXT,
+    tags TEXT,
     sort_order INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -48,6 +78,9 @@ CREATE INDEX IF NOT EXISTS idx_asset_account_currency
 
 CREATE INDEX IF NOT EXISTS idx_asset_account_parent
     ON asset_account (parent_account_id);
+
+CREATE INDEX IF NOT EXISTS idx_asset_account_group_id
+    ON asset_account (group_id);
 
 CREATE TABLE IF NOT EXISTS asset_snapshot (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,6 +132,29 @@ CREATE INDEX IF NOT EXISTS idx_asset_snapshot_detail_account
 CREATE INDEX IF NOT EXISTS idx_asset_snapshot_detail_currency
     ON asset_snapshot_detail (currency_code);
 
+CREATE TABLE IF NOT EXISTS asset_snapshot_group_detail (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id INTEGER NOT NULL,
+    group_id INTEGER NOT NULL,
+    amount NUMERIC NOT NULL,
+    original_amount NUMERIC,
+    currency_code TEXT NOT NULL,
+    amount_source TEXT NOT NULL DEFAULT 'MANUAL',
+    is_computed INTEGER NOT NULL DEFAULT 0,
+    remark TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_asset_snapshot_group_detail_snapshot_group
+    ON asset_snapshot_group_detail (snapshot_id, group_id);
+
+CREATE INDEX IF NOT EXISTS idx_asset_snapshot_group_detail_snapshot
+    ON asset_snapshot_group_detail (snapshot_id);
+
+CREATE INDEX IF NOT EXISTS idx_asset_snapshot_group_detail_group
+    ON asset_snapshot_group_detail (group_id);
+
 INSERT OR IGNORE INTO currency_config (
     currency_code,
     currency_name,
@@ -111,13 +167,11 @@ INSERT OR IGNORE INTO currency_config (
     ('HKD', 'Hong Kong Dollar', 'HK$', 2, 'Hong Kong dollar currency', 1),
     ('USD', 'US Dollar', '$', 2, 'US dollar currency', 1);
 
-INSERT OR IGNORE INTO asset_account (
-    account_code,
-    account_name,
+INSERT OR IGNORE INTO asset_account_group (
+    group_code,
+    group_name,
     category_group,
     account_type,
-    parent_account_id,
-    is_summary,
     balance_direction,
     currency_code,
     institution_name,
@@ -126,14 +180,13 @@ INSERT OR IGNORE INTO asset_account (
     sort_order,
     enabled
 ) VALUES
-    ('ALIPAY', 'Alipay', 'CASH', 'EWALLET', NULL, 0, 'ASSET', 'CNY', 'Alipay', NULL, 'Daily payment account', 10, 1),
-    ('WECHAT', 'WeChat', 'CASH', 'EWALLET', NULL, 0, 'ASSET', 'CNY', 'WeChat Pay', NULL, 'Daily payment account', 20, 1),
-    ('BANK_CARDS', 'Bank Cards', 'CASH', 'BANK_CARD_GROUP', NULL, 1, 'ASSET', 'CNY', 'Bank Card Summary', NULL, 'Auto-summed bank card parent account', 25, 1),
-    ('DEFAULT_BANK_CARD', 'Default Bank Card', 'CASH', 'BANK_CARD', NULL, 0, 'ASSET', 'CNY', 'Default Bank Card', NULL, 'Primary bank card account', 30, 1),
-    ('FUND_ACCOUNT', 'Fund Account', 'INVESTMENT', 'INVESTMENT', NULL, 0, 'ASSET', 'CNY', 'Fund Platform', NULL, 'Fund holding account', 40, 1),
-    ('A_SHARE_ACCOUNT', 'A Share Account', 'INVESTMENT', 'INVESTMENT', NULL, 0, 'ASSET', 'CNY', 'Broker', NULL, 'A-share investment account', 50, 1),
-    ('US_STOCK_ACCOUNT', 'US Stock Account', 'INVESTMENT', 'INVESTMENT', NULL, 0, 'ASSET', 'USD', 'Broker', NULL, 'US stock investment account', 60, 1),
-    ('CREDIT_CARD_DUE', 'Credit Card Due', 'LIABILITY', 'CREDIT_CARD', NULL, 0, 'DEBT', 'CNY', 'Credit Card', NULL, 'Outstanding credit card balance', 70, 1),
-    ('RECEIVABLES', 'Receivables', 'LIABILITY', 'RECEIVABLE', NULL, 0, 'ASSET', 'CNY', 'Personal', NULL, 'External receivables', 80, 1),
-    ('INVESTMENT_LOSS', 'Investment Loss', 'INVESTMENT', 'LOSS', NULL, 0, 'DEBT', 'CNY', 'Investment Summary', NULL, 'Accumulated investment loss account', 90, 1),
-    ('HOUSING_FUND', 'Housing Fund', 'CASH', 'HOUSING_FUND', NULL, 0, 'ASSET', 'CNY', 'Housing Fund Center', NULL, 'Housing fund account', 100, 1);
+    ('ALIPAY', 'Alipay', 'CASH', 'EWALLET', 'ASSET', 'CNY', 'Alipay', NULL, 'Daily payment account', 10, 1),
+    ('WECHAT', 'WeChat', 'CASH', 'EWALLET', 'ASSET', 'CNY', 'WeChat Pay', NULL, 'Daily payment account', 20, 1),
+    ('DEFAULT_BANK_CARD', 'Default Bank Card', 'CASH', 'BANK_CARD', 'ASSET', 'CNY', 'Default Bank Card', NULL, 'Primary bank card account', 30, 1),
+    ('FUND_ACCOUNT', 'Fund Account', 'INVESTMENT', 'INVESTMENT', 'ASSET', 'CNY', 'Fund Platform', NULL, 'Fund holding account', 40, 1),
+    ('A_SHARE_ACCOUNT', 'A Share Account', 'INVESTMENT', 'INVESTMENT', 'ASSET', 'CNY', 'Broker', NULL, 'A-share investment account', 50, 1),
+    ('US_STOCK_ACCOUNT', 'US Stock Account', 'INVESTMENT', 'INVESTMENT', 'ASSET', 'USD', 'Broker', NULL, 'US stock investment account', 60, 1),
+    ('CREDIT_CARD_DUE', 'Credit Card Due', 'LIABILITY', 'CREDIT_CARD', 'DEBT', 'CNY', 'Credit Card', NULL, 'Outstanding credit card balance', 70, 1),
+    ('RECEIVABLES', 'Receivables', 'LIABILITY', 'RECEIVABLE', 'ASSET', 'CNY', 'Personal', NULL, 'External receivables', 80, 1),
+    ('INVESTMENT_LOSS', 'Investment Loss', 'INVESTMENT', 'LOSS', 'DEBT', 'CNY', 'Investment Summary', NULL, 'Accumulated investment loss account', 90, 1),
+    ('HOUSING_FUND', 'Housing Fund', 'CASH', 'HOUSING_FUND', 'ASSET', 'CNY', 'Housing Fund Center', NULL, 'Housing fund account', 100, 1);
