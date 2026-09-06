@@ -14,6 +14,7 @@ Maven-based Spring Boot backend for the personal asset management system.
 Use Java 17, then run from `water-server`. Windows PowerShell can set it for the current terminal:
 
 ```powershell
+
 $env:JAVA_HOME="C:\Program Files\Java\jdk-17"
 ```
 

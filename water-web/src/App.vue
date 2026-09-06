@@ -918,6 +918,10 @@ function accountKey(account) {
   return String(account.id);
 }
 
+function hasAccountTag(account, tag) {
+  return (account?.tags ?? []).some((item) => String(item).trim() === tag);
+}
+
 function isRecordTagExpanded(tag) {
   return expandedRecordTagNames.value.includes(tag);
 }
@@ -2393,10 +2397,22 @@ function formTone(account) {
                     </div>
                   </div>
 
-                  <div v-else class="record-single-row">
+                  <div
+                    v-else
+                    class="record-single-row"
+                    :class="{ 'is-volatile-account': hasAccountTag(recordEntryPrimaryInputAccount(root), '易变') }"
+                  >
                     <div class="record-account-cell">
                       <div class="record-parent-title-main">
-                        <strong>{{ recordEntryPrimaryInputAccount(root).accountName }}</strong>
+                        <div class="record-account-name-line">
+                          <strong>{{ recordEntryPrimaryInputAccount(root).accountName }}</strong>
+                          <span
+                            v-if="hasAccountTag(recordEntryPrimaryInputAccount(root), '易变')"
+                            class="record-volatile-badge"
+                          >
+                            易变
+                          </span>
+                        </div>
                         <button
                           class="record-remark-toggle"
                           type="button"
@@ -2442,9 +2458,13 @@ function formTone(account) {
                       v-for="child in recordEntryVisibleChildren(root)"
                       :key="child.id"
                       class="record-child-row"
+                      :class="{ 'is-volatile-account': hasAccountTag(child, '易变') }"
                     >
                       <div class="record-account-cell">
-                        <strong>{{ child.accountName }}</strong>
+                        <div class="record-account-name-line">
+                          <strong>{{ child.accountName }}</strong>
+                          <span v-if="hasAccountTag(child, '易变')" class="record-volatile-badge">易变</span>
+                        </div>
                         <span>{{ child.accountCode }}</span>
                       </div>
                       <span class="record-currency-chip">{{ child.currencyCode }}</span>
