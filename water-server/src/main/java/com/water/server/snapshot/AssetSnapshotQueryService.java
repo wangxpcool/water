@@ -21,12 +21,18 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class AssetSnapshotQueryService {
 
     private final JdbcTemplate jdbcTemplate;
+    private final SnapshotContextService context;
 
-    public AssetSnapshotQueryService(JdbcTemplate jdbcTemplate) {
+    public AssetSnapshotQueryService(JdbcTemplate jdbcTemplate, SnapshotContextService context) {
         this.jdbcTemplate = jdbcTemplate;
+        this.context = context;
     }
 
     public List<AssetSnapshotResponse> findAllSnapshots() {
+        return findAllSnapshots(true);
+    }
+
+    public List<AssetSnapshotResponse> findAllSnapshots(boolean includeDetails) {
         List<SnapshotRow> snapshotRows = jdbcTemplate.query("""
                 SELECT id,
                        snapshot_date,
@@ -48,7 +54,7 @@ public class AssetSnapshotQueryService {
                 ORDER BY snapshot_date DESC, id DESC
                 """, (rs, rowNum) -> mapSnapshotRow(rs));
 
-        Map<Long, List<AssetSnapshotDetailDto>> detailMap = findDetailsBySnapshotId();
+        Map<Long, List<AssetSnapshotDetailDto>> detailMap = includeDetails ? findDetailsBySnapshotId() : Map.of();
 
         return snapshotRows.stream()
                 .map(row -> new AssetSnapshotResponse(
@@ -68,7 +74,9 @@ public class AssetSnapshotQueryService {
                         row.note(),
                         row.remark(),
                         row.sourceRowNumber(),
-                        detailMap.getOrDefault(row.id(), List.of())
+                        detailMap.getOrDefault(row.id(), List.of()),
+                        includeDetails ? context.adjustments(row.id()) : Map.of(),
+                        includeDetails && context.exists(row.id()) ? context.hkdToCnyRate(row.id()) : null
                 ))
                 .toList();
     }
@@ -118,8 +126,17 @@ public class AssetSnapshotQueryService {
                 row.note(),
                 row.remark(),
                 row.sourceRowNumber(),
-                detailMap.getOrDefault(id, List.of())
+                detailMap.getOrDefault(id, List.of()),
+                context.adjustments(id),
+                context.hkdToCnyRate(id)
         );
+    }
+
+    public AssetSnapshotResponse findSnapshotByDate(LocalDate date) {
+        List<Long> ids = jdbcTemplate.query("SELECT id FROM asset_snapshot WHERE snapshot_date = ?",
+                (rs, n) -> rs.getLong(1), date.toString());
+        if (ids.isEmpty()) throw new ResponseStatusException(NOT_FOUND, "Snapshot date not found: " + date);
+        return findSnapshotById(ids.get(0));
     }
 
     public List<AssetAccountOptionDto> findEnabledAccounts() {
@@ -214,6 +231,7 @@ public class AssetSnapshotQueryService {
                        a.owner_name,
                        a.remark,
                        a.tags,
+                       a.is_subtotal,
                        a.sort_order,
                        a.enabled
                 FROM asset_account a
@@ -242,6 +260,7 @@ public class AssetSnapshotQueryService {
                        a.owner_name,
                        a.remark,
                        a.tags,
+                       a.is_subtotal,
                        a.sort_order,
                        a.enabled
                 FROM asset_account a
@@ -331,6 +350,7 @@ public class AssetSnapshotQueryService {
                        d.is_computed,
                        d.remark,
                        a.tags,
+                       a.is_subtotal,
                        a.sort_order,
                        a.id AS account_id,
                        a.id AS display_id
@@ -364,9 +384,21 @@ public class AssetSnapshotQueryService {
                             row.amountSource(),
                             row.computed(),
                             row.remark(),
-                            row.tags()
+                            row.tags(),
+                            false
                     ));
         }
+        detailMap.replaceAll((id, details) -> {
+            Map<Long, AssetAccountOptionDto> frozen = context.accounts(id).stream()
+                    .collect(Collectors.toMap(AssetAccountOptionDto::id, a -> a));
+            return details.stream().map(d -> {
+                AssetAccountOptionDto a = frozen.get(d.accountId());
+                if (a == null) return d;
+                return new AssetSnapshotDetailDto(d.accountId(), a.accountCode(), a.accountName(), a.accountType(),
+                        a.categoryGroup(), a.parentAccountId(), a.summaryAccount(), a.balanceDirection(),
+                        d.currencyCode(), d.amount(), d.originalAmount(), d.amountSource(), d.computed(), d.remark(), a.tags(), a.subtotalAccount());
+            }).toList();
+        });
         return detailMap;
     }
 
@@ -456,7 +488,8 @@ public class AssetSnapshotQueryService {
                 rs.getInt("sort_order"),
                 rs.getInt("enabled") == 1,
                 parseTags(rs.getString("tags")),
-                latestAmountMap.get(id)
+                latestAmountMap.get(id),
+                rs.getInt("is_subtotal") == 1
         );
     }
 

@@ -185,7 +185,7 @@ INSERT OR IGNORE INTO asset_account_group (
     ('DEFAULT_BANK_CARD', 'Default Bank Card', 'CASH', 'BANK_CARD', 'ASSET', 'CNY', 'Default Bank Card', NULL, 'Primary bank card account', 30, 1),
     ('FUND_ACCOUNT', 'Fund Account', 'INVESTMENT', 'INVESTMENT', 'ASSET', 'CNY', 'Fund Platform', NULL, 'Fund holding account', 40, 1),
     ('A_SHARE_ACCOUNT', 'A Share Account', 'INVESTMENT', 'INVESTMENT', 'ASSET', 'CNY', 'Broker', NULL, 'A-share investment account', 50, 1),
-    ('US_STOCK_ACCOUNT', 'US Stock Account', 'INVESTMENT', 'INVESTMENT', 'ASSET', 'USD', 'Broker', NULL, 'US stock investment account', 60, 1),
+    ('US_STOCK_ACCOUNT', 'US Stock Account', 'INVESTMENT', 'INVESTMENT', 'ASSET', 'CNY', 'Broker', NULL, 'US stock investment account', 60, 1),
     ('CREDIT_CARD_DUE', 'Credit Card Due', 'LIABILITY', 'CREDIT_CARD', 'DEBT', 'CNY', 'Credit Card', NULL, 'Outstanding credit card balance', 70, 1),
     ('RECEIVABLES', 'Receivables', 'LIABILITY', 'RECEIVABLE', 'ASSET', 'CNY', 'Personal', NULL, 'External receivables', 80, 1),
     ('INVESTMENT_LOSS', 'Investment Loss', 'INVESTMENT', 'LOSS', 'DEBT', 'CNY', 'Investment Summary', NULL, 'Accumulated investment loss account', 90, 1),

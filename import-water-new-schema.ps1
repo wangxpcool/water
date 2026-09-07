@@ -262,7 +262,7 @@ INSERT INTO asset_snapshot (
     }
 
     foreach ($item in Parse-Breakdown $row.asset $investmentAccountCodes) {
-        $currencyCode = if ($item.account_code -eq "US_STOCK_ACCOUNT") { "USD" } else { "CNY" }
+        $currencyCode = "CNY"
         $detailItems.Add([pscustomobject]@{
             account_code = $item.account_code
             amount = $item.amount

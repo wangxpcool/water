@@ -14,14 +14,21 @@ import java.util.Set;
 public class AssetSchemaMigration implements ApplicationRunner {
 
     private final JdbcTemplate jdbcTemplate;
+    private final SnapshotContextService context;
+    private final DictionaryService dictionary;
+    private final AssetSnapshotQueryService queries;
 
-    public AssetSchemaMigration(JdbcTemplate jdbcTemplate) {
+    public AssetSchemaMigration(JdbcTemplate jdbcTemplate, SnapshotContextService context, AssetSnapshotQueryService queries, DictionaryService dictionary) {
         this.jdbcTemplate = jdbcTemplate;
+        this.context = context;
+        this.dictionary = dictionary;
+        this.queries = queries;
     }
 
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
+        dictionary.initialize();
         ensureAccountGroupTable();
         ensureSnapshotGroupDetailTable();
 
@@ -29,6 +36,7 @@ public class AssetSchemaMigration implements ApplicationRunner {
         ensureAccountColumn("parent_account_id", "ALTER TABLE asset_account ADD COLUMN parent_account_id INTEGER");
         ensureAccountColumn("is_summary", "ALTER TABLE asset_account ADD COLUMN is_summary INTEGER NOT NULL DEFAULT 0");
         ensureAccountColumn("group_id", "ALTER TABLE asset_account ADD COLUMN group_id INTEGER");
+        ensureAccountColumn("is_subtotal", "ALTER TABLE asset_account ADD COLUMN is_subtotal INTEGER NOT NULL DEFAULT 0");
         ensureAccountColumn("tags", "ALTER TABLE asset_account ADD COLUMN tags TEXT");
         ensureSnapshotDetailColumn(
                 "amount_source",
@@ -39,12 +47,28 @@ public class AssetSchemaMigration implements ApplicationRunner {
                 "ALTER TABLE asset_snapshot_detail ADD COLUMN is_computed INTEGER NOT NULL DEFAULT 0"
         );
 
+        context.ensureTable();
+        jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS water_schema_version (version TEXT PRIMARY KEY)");
+        boolean migrated = !jdbcTemplate.queryForList(
+                "SELECT version FROM water_schema_version WHERE version = 'snapshot-history-v1'").isEmpty();
+        if (migrated) return;
+
         backfillAccountCategoryGroup();
         migrateLegacyAccountGroups();
         ensureDefaultAccountGroups();
         migrateLegacyGroupSnapshotDetails();
-        recalculateGroupDetailsFromBreakdowns();
-        recalculateSnapshotAggregates();
+        jdbcTemplate.update("""
+                UPDATE asset_account SET is_subtotal = 1
+                WHERE account_code = (SELECT group_code FROM asset_account_group g WHERE g.id = asset_account.group_id)
+                  AND EXISTS (SELECT 1 FROM asset_account child WHERE child.group_id = asset_account.group_id AND child.id <> asset_account.id)
+                """);
+        // Legacy migration is structural. Stored historical totals must not be rewritten on startup.
+        for (AssetSnapshotResponse snapshot : queries.findAllSnapshots()) {
+            var ids = snapshot.details().stream().map(AssetSnapshotDetailDto::accountId)
+                    .collect(java.util.stream.Collectors.toSet());
+            context.save(snapshot.id(), queries.findAllAccounts().stream().filter(a -> ids.contains(a.id())).toList(), null);
+        }
+        jdbcTemplate.update("INSERT INTO water_schema_version(version) VALUES ('snapshot-history-v1')");
 
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_asset_account_group ON asset_account (category_group)");
         jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_asset_account_parent ON asset_account (parent_account_id)");
@@ -319,156 +343,6 @@ public class AssetSchemaMigration implements ApplicationRunner {
                 """);
     }
 
-    private void recalculateGroupDetailsFromBreakdowns() {
-        jdbcTemplate.update("""
-                INSERT INTO asset_snapshot_group_detail (
-                    snapshot_id,
-                    group_id,
-                    amount,
-                    original_amount,
-                    currency_code,
-                    amount_source,
-                    is_computed,
-                    remark,
-                    created_at,
-                    updated_at
-                )
-                SELECT d.snapshot_id,
-                       g.id,
-                       ROUND(SUM(ROUND(CASE WHEN d.currency_code = 'HKD' THEN d.amount * 0.87 ELSE d.amount END, 1)), 1),
-                       NULL,
-                       g.currency_code,
-                       'ROLLED_UP',
-                       1,
-                       NULL,
-                       CURRENT_TIMESTAMP,
-                       CURRENT_TIMESTAMP
-                FROM asset_snapshot_detail d
-                JOIN asset_account a ON a.id = d.account_id
-                JOIN asset_account_group g ON g.id = a.group_id
-                WHERE (
-                    (
-                        SELECT COUNT(*)
-                        FROM asset_account child
-                        WHERE child.group_id = g.id
-                    ) <= 1
-                    OR a.account_code <> g.group_code
-                )
-                GROUP BY d.snapshot_id, g.id
-                ON CONFLICT(snapshot_id, group_id) DO UPDATE SET
-                    amount = excluded.amount,
-                    original_amount = NULL,
-                    currency_code = excluded.currency_code,
-                    amount_source = 'ROLLED_UP',
-                    is_computed = 1,
-                    remark = NULL,
-                    updated_at = CURRENT_TIMESTAMP
-                """);
-    }
-
-    private void recalculateSnapshotAggregates() {
-        jdbcTemplate.update("""
-                UPDATE asset_snapshot
-                SET cash_total = ROUND(COALESCE((
-                        SELECT SUM(amount)
-                        FROM (
-                            SELECT gd.amount, g.category_group, g.balance_direction
-                            FROM asset_snapshot_group_detail gd
-                            JOIN asset_account_group g ON g.id = gd.group_id
-                            WHERE gd.snapshot_id = asset_snapshot.id
-                            UNION ALL
-                            SELECT ROUND(CASE WHEN d.currency_code = 'HKD' THEN d.amount * 0.87 ELSE d.amount END, 1), a.category_group, a.balance_direction
-                            FROM asset_snapshot_detail d
-                            JOIN asset_account a ON a.id = d.account_id
-                            WHERE d.snapshot_id = asset_snapshot.id
-                              AND a.group_id IS NULL
-                        ) top_details
-                        WHERE category_group = 'CASH'
-                          AND balance_direction = 'ASSET'
-                    ), 0), 1),
-                    investment_total = ROUND(COALESCE((
-                        SELECT SUM(CASE WHEN balance_direction = 'DEBT' THEN amount * -1 ELSE amount END)
-                        FROM (
-                            SELECT gd.amount, g.category_group, g.balance_direction
-                            FROM asset_snapshot_group_detail gd
-                            JOIN asset_account_group g ON g.id = gd.group_id
-                            WHERE gd.snapshot_id = asset_snapshot.id
-                            UNION ALL
-                            SELECT ROUND(CASE WHEN d.currency_code = 'HKD' THEN d.amount * 0.87 ELSE d.amount END, 1), a.category_group, a.balance_direction
-                            FROM asset_snapshot_detail d
-                            JOIN asset_account a ON a.id = d.account_id
-                            WHERE d.snapshot_id = asset_snapshot.id
-                              AND a.group_id IS NULL
-                        ) top_details
-                        WHERE category_group = 'INVESTMENT'
-                    ), 0), 1),
-                    liability_total = ROUND(COALESCE((
-                        SELECT SUM(amount)
-                        FROM (
-                            SELECT gd.amount, g.category_group, g.balance_direction
-                            FROM asset_snapshot_group_detail gd
-                            JOIN asset_account_group g ON g.id = gd.group_id
-                            WHERE gd.snapshot_id = asset_snapshot.id
-                            UNION ALL
-                            SELECT ROUND(CASE WHEN d.currency_code = 'HKD' THEN d.amount * 0.87 ELSE d.amount END, 1), a.category_group, a.balance_direction
-                            FROM asset_snapshot_detail d
-                            JOIN asset_account a ON a.id = d.account_id
-                            WHERE d.snapshot_id = asset_snapshot.id
-                              AND a.group_id IS NULL
-                        ) top_details
-                        WHERE balance_direction = 'DEBT'
-                    ), 0), 1),
-                    gross_account_value = ROUND(COALESCE((
-                        SELECT SUM(amount)
-                        FROM (
-                            SELECT gd.amount, g.category_group, g.balance_direction
-                            FROM asset_snapshot_group_detail gd
-                            JOIN asset_account_group g ON g.id = gd.group_id
-                            WHERE gd.snapshot_id = asset_snapshot.id
-                            UNION ALL
-                            SELECT ROUND(CASE WHEN d.currency_code = 'HKD' THEN d.amount * 0.87 ELSE d.amount END, 1), a.category_group, a.balance_direction
-                            FROM asset_snapshot_detail d
-                            JOIN asset_account a ON a.id = d.account_id
-                            WHERE d.snapshot_id = asset_snapshot.id
-                              AND a.group_id IS NULL
-                        ) top_details
-                        WHERE balance_direction <> 'DEBT'
-                    ), 0), 1),
-                    net_worth = ROUND(COALESCE((
-                        SELECT SUM(amount)
-                        FROM (
-                            SELECT gd.amount, g.category_group, g.balance_direction
-                            FROM asset_snapshot_group_detail gd
-                            JOIN asset_account_group g ON g.id = gd.group_id
-                            WHERE gd.snapshot_id = asset_snapshot.id
-                            UNION ALL
-                            SELECT ROUND(CASE WHEN d.currency_code = 'HKD' THEN d.amount * 0.87 ELSE d.amount END, 1), a.category_group, a.balance_direction
-                            FROM asset_snapshot_detail d
-                            JOIN asset_account a ON a.id = d.account_id
-                            WHERE d.snapshot_id = asset_snapshot.id
-                              AND a.group_id IS NULL
-                        ) top_details
-                        WHERE balance_direction <> 'DEBT'
-                    ), 0) - COALESCE((
-                        SELECT SUM(amount)
-                        FROM (
-                            SELECT gd.amount, g.category_group, g.balance_direction
-                            FROM asset_snapshot_group_detail gd
-                            JOIN asset_account_group g ON g.id = gd.group_id
-                            WHERE gd.snapshot_id = asset_snapshot.id
-                            UNION ALL
-                            SELECT ROUND(CASE WHEN d.currency_code = 'HKD' THEN d.amount * 0.87 ELSE d.amount END, 1), a.category_group, a.balance_direction
-                            FROM asset_snapshot_detail d
-                            JOIN asset_account a ON a.id = d.account_id
-                            WHERE d.snapshot_id = asset_snapshot.id
-                              AND a.group_id IS NULL
-                        ) top_details
-                        WHERE balance_direction = 'DEBT'
-                    ), 0), 1),
-                    updated_at = CURRENT_TIMESTAMP
-                """);
-    }
-
     private void ensureDefaultAccountGroups() {
         for (GroupTemplate group : defaultGroups()) {
             jdbcTemplate.update(
@@ -510,7 +384,7 @@ public class AssetSchemaMigration implements ApplicationRunner {
                 new GroupTemplate("DEFAULT_BANK_CARD", "Default Bank Card", "CASH", "BANK_CARD", "ASSET", "CNY", "Default Bank Card", null, "Primary bank card account", 30, 1),
                 new GroupTemplate("FUND_ACCOUNT", "Fund Account", "INVESTMENT", "INVESTMENT", "ASSET", "CNY", "Fund Platform", null, "Fund holding account", 40, 1),
                 new GroupTemplate("A_SHARE_ACCOUNT", "A Share Account", "INVESTMENT", "INVESTMENT", "ASSET", "CNY", "Broker", null, "A-share investment account", 50, 1),
-                new GroupTemplate("US_STOCK_ACCOUNT", "US Stock Account", "INVESTMENT", "INVESTMENT", "ASSET", "USD", "Broker", null, "US stock investment account", 60, 1),
+                new GroupTemplate("US_STOCK_ACCOUNT", "US Stock Account", "INVESTMENT", "INVESTMENT", "ASSET", "CNY", "Broker", null, "US stock investment account", 60, 1),
                 new GroupTemplate("CREDIT_CARD_DUE", "Credit Card Due", "LIABILITY", "CREDIT_CARD", "DEBT", "CNY", "Credit Card", null, "Outstanding credit card balance", 70, 1),
                 new GroupTemplate("RECEIVABLES", "Receivables", "LIABILITY", "RECEIVABLE", "ASSET", "CNY", "Personal", null, "External receivables", 80, 1),
                 new GroupTemplate("INVESTMENT_LOSS", "Investment Loss", "INVESTMENT", "LOSS", "DEBT", "CNY", "Investment Summary", null, "Accumulated investment loss account", 90, 1),

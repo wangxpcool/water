@@ -1,0 +1,35 @@
+# 金额和汇率字典
+
+`config_dictionary` 保存数值配置，使用 `(dict_type, dict_key)` 作为联合主键。`dict_value` 用文本保存十进制数值，接口解析为 BigDecimal；支持名称、备注及创建/更新时间。
+
+| dict_type | dict_key | 用途 |
+| --- | --- | --- |
+| EXCHANGE_RATE | HKD_CNY | 1 港币对应的人民币数值，首次安装默认 0.87 |
+| TAG_ADJUSTMENT | 标签名称 | 该标签在新记录中的默认调整金额，允许负数，0 表示不调整 |
+
+录入台账顶部的“金额与汇率配置”可编辑并批量保存。新记录通过接口读取字典；已有快照继续读取当期调整金额及 `asset_snapshot_context.hkd_to_cny_rate`，不会因为修改字典而重算历史。当前未提交草稿中的金额调整保留为本次覆盖值。
+
+原有 `water.recordEntryTagAdjustments.v1` 缓存会在用户使用原浏览器打开新版页面时自动迁移。迁移只补充数据库中缺失的键，防止其他浏览器的旧缓存覆盖新配置；成功后才清理旧键。缓存内容不可用或解析失败时不猜测金额。按日期保存的录入草稿仍保留在浏览器，正式配置不依赖浏览器缓存。
+
+## API
+
+- `GET /api/dictionary`：读取全部字典项。
+- `PUT /api/dictionary`：批量新增/更新配置；全部验证通过后在同一事务提交。
+- `POST /api/dictionary/import-tag-adjustments`：迁移旧缓存，重复请求不会覆盖已有值。
+
+PUT 示例：
+
+```json
+[
+  {"dictType":"EXCHANGE_RATE","dictKey":"HKD_CNY","value":0.9,"displayName":"港币兑人民币"},
+  {"dictType":"TAG_ADJUSTMENT","dictKey":"现金","value":10,"displayName":"现金"}
+]
+```
+
+迁移请求示例：`{"现金":10,"固收":-2.5}`。这些数字仅为接口示例，系统不会将其作为初始金额。
+
+港币汇率必须为正数；金额和汇率最多 24 位有效数字、8 位小数。批量请求最多 100 项。不支持非数值、空金额、未知类型或其他汇率键。新快照若携带的预览汇率与服务器当前字典不一致，返回 409，避免预览与保存结果不同。
+
+首次初始化的 0.87 只用于字典种子和旧快照汇率回填；计算代码不再写死该数值。启动迁移使用 `INSERT OR IGNORE`，重启不会覆盖已配置值。
+
+后端需重启使新接口和数据库迁移生效，之后刷新前端即可。字典接口及历史汇率行为由 `DictionaryServiceTests` 验证。

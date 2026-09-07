@@ -27,17 +27,25 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class AssetSnapshotCommandService {
 
     private final JdbcTemplate jdbcTemplate;
+    private final SnapshotContextService context;
+    private final DictionaryService dictionary;
     private final AssetSnapshotQueryService assetSnapshotQueryService;
 
-    public AssetSnapshotCommandService(JdbcTemplate jdbcTemplate, AssetSnapshotQueryService assetSnapshotQueryService) {
+    public AssetSnapshotCommandService(JdbcTemplate jdbcTemplate, AssetSnapshotQueryService assetSnapshotQueryService, SnapshotContextService context, DictionaryService dictionary) {
         this.jdbcTemplate = jdbcTemplate;
+        this.context = context;
+        this.dictionary = dictionary;
         this.assetSnapshotQueryService = assetSnapshotQueryService;
     }
 
     @Transactional
     public AssetSnapshotResponse createSnapshot(AssetSnapshotUpsertRequest request) {
         List<AssetAccountOptionDto> accounts = assetSnapshotQueryService.findEnabledAccounts();
-        SnapshotAggregate aggregate = buildAggregate(request, accounts);
+        BigDecimal rate = dictionary.hkdToCnyRate();
+        if (request.hkdToCnyRate() != null && request.hkdToCnyRate().compareTo(rate) != 0) {
+            throw new ResponseStatusException(CONFLICT, "Exchange rate changed; reload the configuration before saving");
+        }
+        SnapshotAggregate aggregate = buildAggregate(request, accounts, rate);
         KeyHolder keyHolder = new GeneratedKeyHolder();
 
         try {
@@ -76,14 +84,24 @@ public class AssetSnapshotCommandService {
         }
 
         saveDetails(key.longValue(), aggregate.persistedDetails());
+        saveContext(key.longValue(), accounts, aggregate, request);
+        context.saveRate(key.longValue(), rate);
         return assetSnapshotQueryService.findSnapshotById(key.longValue());
     }
 
     @Transactional
     public AssetSnapshotResponse updateSnapshot(long id, AssetSnapshotUpsertRequest request) {
         assertSnapshotExists(id);
-        List<AssetAccountOptionDto> accounts = assetSnapshotQueryService.findEnabledAccounts();
-        SnapshotAggregate aggregate = buildAggregate(request, accounts);
+        Map<Long, AssetAccountOptionDto> definitions = assetSnapshotQueryService.findAllAccounts().stream()
+                .collect(Collectors.toMap(AssetAccountOptionDto::id, a -> a, (a, b) -> a, LinkedHashMap::new));
+        // Existing definitions take precedence, including disabled or moved accounts.
+        context.accounts(id).forEach(a -> definitions.put(a.id(), a));
+        List<AssetAccountOptionDto> accounts = new ArrayList<>(definitions.values());
+        BigDecimal rate = context.hkdToCnyRate(id);
+        if (request.hkdToCnyRate() != null && request.hkdToCnyRate().compareTo(rate) != 0) {
+            throw new ResponseStatusException(CONFLICT, "Exchange rate changed; reload the configuration before saving");
+        }
+        SnapshotAggregate aggregate = buildAggregate(request, accounts, rate);
 
         try {
             int updated = jdbcTemplate.update("""
@@ -119,6 +137,7 @@ public class AssetSnapshotCommandService {
         jdbcTemplate.update("DELETE FROM asset_snapshot_detail WHERE snapshot_id = ?", id);
         jdbcTemplate.update("DELETE FROM asset_snapshot_group_detail WHERE snapshot_id = ?", id);
         saveDetails(id, aggregate.persistedDetails());
+        saveContext(id, accounts, aggregate, request);
         return assetSnapshotQueryService.findSnapshotById(id);
     }
 
@@ -126,10 +145,18 @@ public class AssetSnapshotCommandService {
     public void deleteSnapshot(long id) {
         jdbcTemplate.update("DELETE FROM asset_snapshot_detail WHERE snapshot_id = ?", id);
         jdbcTemplate.update("DELETE FROM asset_snapshot_group_detail WHERE snapshot_id = ?", id);
+        jdbcTemplate.update("DELETE FROM asset_snapshot_context WHERE snapshot_id = ?", id);
         int deletedSnapshots = jdbcTemplate.update("DELETE FROM asset_snapshot WHERE id = ?", id);
         if (deletedSnapshots == 0) {
             throw notFound(id);
         }
+    }
+
+    private void saveContext(long id, List<AssetAccountOptionDto> accounts, SnapshotAggregate aggregate,
+            AssetSnapshotUpsertRequest request) {
+        var ids = aggregate.persistedDetails().stream().map(PersistedDetail::accountId).collect(Collectors.toSet());
+        context.save(id, accounts.stream().filter(a -> ids.contains(a.id())).toList(),
+                request.tagAdjustments() == null && !context.exists(id) ? dictionary.tagAdjustments() : request.tagAdjustments());
     }
 
     private void assertSnapshotExists(long id) {
@@ -143,7 +170,7 @@ public class AssetSnapshotCommandService {
         }
     }
 
-    private SnapshotAggregate buildAggregate(AssetSnapshotUpsertRequest request, List<AssetAccountOptionDto> accounts) {
+    private SnapshotAggregate buildAggregate(AssetSnapshotUpsertRequest request, List<AssetAccountOptionDto> accounts, BigDecimal rate) {
         Map<Long, AssetAccountOptionDto> accountsById = accounts.stream()
                 .collect(Collectors.toMap(AssetAccountOptionDto::id, account -> account, (left, right) -> left, LinkedHashMap::new));
         Map<String, List<AssetAccountOptionDto>> accountsByCode = accounts.stream()
@@ -177,7 +204,7 @@ public class AssetSnapshotCommandService {
         }
 
         for (AssetAccountOptionDto account : accounts) {
-            computeSummaryDetail(account, childrenByParent, persistedByAccountId);
+            computeSummaryDetail(account, childrenByParent, persistedByAccountId, rate);
         }
 
         BigDecimal cashTotal = BigDecimal.ZERO;
@@ -194,7 +221,7 @@ public class AssetSnapshotCommandService {
                 continue;
             }
 
-            BigDecimal amount = amountInReportingCurrency(detail, account);
+            BigDecimal amount = amountInReportingCurrency(detail, account, rate);
             if ("DEBT".equals(account.balanceDirection())) {
                 liabilityTotal = liabilityTotal.add(amount);
             } else {
@@ -275,25 +302,27 @@ public class AssetSnapshotCommandService {
     private PersistedDetail computeSummaryDetail(
             AssetAccountOptionDto account,
             Map<Long, List<AssetAccountOptionDto>> childrenByParent,
-            Map<Long, PersistedDetail> persistedByAccountId
+            Map<Long, PersistedDetail> persistedByAccountId,
+            BigDecimal rate
     ) {
         PersistedDetail existing = persistedByAccountId.get(account.id());
         if (!Boolean.TRUE.equals(account.summaryAccount())) {
             return existing;
         }
 
-        List<AssetAccountOptionDto> children = rollupChildren(account, childrenByParent.getOrDefault(account.id(), List.of()));
+        List<AssetAccountOptionDto> children = rollupChildren(account, childrenByParent.getOrDefault(account.id(), List.of()).stream()
+                .filter(child -> persistedByAccountId.containsKey(child.id())).toList());
         if (children.isEmpty()) {
             return existing;
         }
 
         BigDecimal sum = null;
         for (AssetAccountOptionDto child : children) {
-            PersistedDetail childDetail = computeSummaryDetail(child, childrenByParent, persistedByAccountId);
+            PersistedDetail childDetail = computeSummaryDetail(child, childrenByParent, persistedByAccountId, rate);
             if (childDetail == null || childDetail.amount() == null) {
                 continue;
             }
-            BigDecimal childAmount = amountInReportingCurrency(childDetail, child);
+            BigDecimal childAmount = amountInReportingCurrency(childDetail, child, rate);
             sum = sum == null ? childAmount : sum.add(childAmount);
         }
 
@@ -305,30 +334,25 @@ public class AssetSnapshotCommandService {
                 account.id(),
                 sum,
                 null,
-                account.currencyCode(),
+                "CNY",
                 "ROLLED_UP",
                 true,
-                null
+                existing == null ? null : existing.remark()
         );
         persistedByAccountId.put(account.id(), summary);
         return summary;
     }
 
     private List<AssetAccountOptionDto> rollupChildren(AssetAccountOptionDto account, List<AssetAccountOptionDto> children) {
-        if (children.size() <= 1) {
-            return children;
-        }
-
-        List<AssetAccountOptionDto> withoutSameCodeMirror = children.stream()
-                .filter(child -> !Objects.equals(child.accountCode(), account.accountCode()))
-                .toList();
-        return withoutSameCodeMirror.isEmpty() ? children : withoutSameCodeMirror;
+        List<AssetAccountOptionDto> realChildren = children.stream()
+                .filter(child -> !Boolean.TRUE.equals(child.subtotalAccount())).toList();
+        return realChildren.isEmpty() ? children : realChildren;
     }
 
-    private BigDecimal amountInReportingCurrency(PersistedDetail detail, AssetAccountOptionDto account) {
+    private BigDecimal amountInReportingCurrency(PersistedDetail detail, AssetAccountOptionDto account, BigDecimal rate) {
         String currencyCode = normalizeCurrencyCode(detail.currencyCode(), account.currencyCode());
         if ("HKD".equals(currencyCode)) {
-            return detail.amount().multiply(new BigDecimal("0.87")).setScale(1, RoundingMode.HALF_UP);
+            return detail.amount().multiply(rate).setScale(1, RoundingMode.HALF_UP);
         }
         return detail.amount();
     }

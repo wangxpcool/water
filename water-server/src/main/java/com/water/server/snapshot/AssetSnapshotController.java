@@ -33,8 +33,9 @@ public class AssetSnapshotController {
     }
 
     @GetMapping
-    public List<AssetSnapshotResponse> listSnapshots() {
-        return assetSnapshotQueryService.findAllSnapshots();
+    public List<AssetSnapshotResponse> listSnapshots(
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "true") boolean includeDetails) {
+        return assetSnapshotQueryService.findAllSnapshots(includeDetails);
     }
 
     @GetMapping("/all")
@@ -45,6 +46,16 @@ public class AssetSnapshotController {
     @GetMapping("/accounts")
     public List<AssetAccountOptionDto> listAccounts() {
         return assetSnapshotQueryService.findEnabledAccounts();
+    }
+
+    @GetMapping("/{id}")
+    public AssetSnapshotResponse getSnapshot(@PathVariable long id) {
+        return assetSnapshotQueryService.findSnapshotById(id);
+    }
+
+    @GetMapping("/by-date/{date}")
+    public AssetSnapshotResponse getByDate(@PathVariable java.time.LocalDate date) {
+        return assetSnapshotQueryService.findSnapshotByDate(date);
     }
 
     @PostMapping

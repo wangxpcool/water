@@ -2,6 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import SnapshotEditor from "./components/SnapshotEditor.vue";
 import AccountEditor from "./components/AccountEditor.vue";
+import HomeOverview from "./components/HomeOverview.vue";
+import DictionarySettings from "./components/DictionarySettings.vue";
+import { requestJson } from "./api.js";
 
 const HOME_PAGE = "home";
 const SNAPSHOTS_PAGE = "snapshots";
@@ -19,13 +22,28 @@ const currentPage = ref(resolvePageFromHash());
 const snapshots = ref([]);
 const accountDefinitions = ref([]);
 const accounts = ref([]);
+const dictionaryEntries = ref([]);
+const hkdToCnyRate = computed(() => Number(dictionaryEntries.value.find(e => e.dictType === "EXCHANGE_RATE" && e.dictKey === "HKD_CNY")?.value));
+const dictionaryTagDefaults = computed(() => Object.fromEntries(dictionaryEntries.value.filter(e => e.dictType === "TAG_ADJUSTMENT").map(e => [e.dictKey, e.value])));
+const dictionaryTagNames = computed(() => [...new Set(accounts.value.flatMap(a => a.tags ?? []))]);
+const recordExchangeRate = computed(() => selectedRecordSnapshot.value?.hkdToCnyRate ?? hkdToCnyRate.value);
+function updateDictionary(entries) {
+  dictionaryEntries.value = entries;
+  if (!selectedRecordSnapshot.value && !recordDirty.value) loadRecordDate();
+}
 const expandedId = ref(null);
 const editingId = ref(null);
 const deletingId = ref(null);
 const accountEditingId = ref(null);
 const accountDeletingId = ref(null);
-const netWorthChartRef = ref(null);
-let netWorthChartInstance = null;
+const snapshotListPage = ref(1);
+const snapshotPageCount = computed(() => Math.max(1, Math.ceil(snapshots.value.length / 20)));
+const visibleSnapshots = computed(() => snapshots.value.slice((snapshotListPage.value - 1) * 20, snapshotListPage.value * 20));
+const recordReady = ref(false);
+const recordLoadedDate = ref("");
+const recordBaseline = ref("");
+const recordDraftNotice = ref("");
+let recordLoadSequence = 0;
 let formSuccessTimer = null;
 
 const snapshotForm = reactive(createEmptySnapshotForm());
@@ -36,9 +54,32 @@ const expandedAccountIds = ref([]);
 const expandedRemarkIds = ref([]);
 const collapsedRecordEntryIds = ref([]);
 const expandedRecordTagNames = ref([]);
-const recordEntryTagAdjustments = reactive(loadRecordEntryTagAdjustments());
-
-watch(recordEntryTagAdjustments, persistRecordEntryTagAdjustments, { deep: true });
+const recordEntryTagAdjustments = reactive({});
+function readLegacyTagAdjustments() {
+  try {
+    const values = JSON.parse(localStorage.getItem(RECORD_ENTRY_TAG_ADJUSTMENTS_STORAGE_KEY) || "{}");
+    return Object.fromEntries(Object.entries(values).filter(([key, value]) => key.trim() && value !== null && String(value).trim() !== "" && Number.isFinite(Number(value))));
+  } catch { return {}; }
+}
+async function migrateLegacyTagAdjustments() {
+  const values = readLegacyTagAdjustments();
+  if (!Object.keys(values).length) return;
+  dictionaryEntries.value = await requestJson("/api/dictionary/import-tag-adjustments", { method: "POST", body: JSON.stringify(values) });
+  // The import fills missing keys only, preserving newer values already in the database.
+  try { localStorage.removeItem(RECORD_ENTRY_TAG_ADJUSTMENTS_STORAGE_KEY); } catch { /* Repeated import is idempotent. */ }
+}
+const selectedRecordSnapshot = computed(() => snapshots.value.find(s => s.snapshotDate === recordEntryForm.snapshotDate));
+const recordBaseSnapshot = computed(() => selectedRecordSnapshot.value ?? previousRecordSnapshot.value);
+const recordDirty = computed(() => recordReady.value && recordFingerprint() !== recordBaseline.value);
+watch([recordEntryForm, recordEntryTagAdjustments], () => {
+  if (!recordReady.value || recordLoadedDate.value !== recordEntryForm.snapshotDate) return;
+  try {
+    const key = `water.recordDraft.v2.${recordEntryForm.snapshotDate}`;
+    if (recordDirty.value) localStorage.setItem(key, recordFingerprint());
+    else localStorage.removeItem(key);
+  } catch { recordDraftNotice.value = "浏览器未能保存草稿，请及时保存记录。"; }
+}, { deep: true, flush: 'sync' });
+watch(() => recordEntryForm.snapshotDate, () => { if (!loading.value) loadRecordDate(); });
 
 const latestSnapshot = computed(() => snapshots.value[0] ?? null);
 const previousRecordSnapshot = computed(() => {
@@ -225,9 +266,20 @@ const accountCardGroups = computed(() =>
     }))
   )
 );
+const recordAccountToAdd = ref("");
+const recordAccountCandidates = computed(() => accounts.value.filter(a => a.enabled && !a.summaryAccount && !a.subtotalAccount && !recordEntryEnabledAccounts.value.some(d => d.id === a.id)));
+function addRecordAccount() {
+  const account = accountIdMap.value.get(Number(recordAccountToAdd.value));
+  if (!account) return;
+  recordEntryForm.additionalAccountIds.push(account.id);
+  if (account.parentAccountId != null) recordEntryForm.additionalAccountIds.push(account.parentAccountId);
+  recordAccountToAdd.value = "";
+}
 const recordEntryEnabledAccounts = computed(() =>
-  accounts.value
-    .filter((account) => account.enabled)
+  (selectedRecordSnapshot.value
+    ? [...(selectedRecordSnapshot.value.details ?? []).map(d => ({ ...accountIdMap.value.get(d.accountId), ...d, id: d.accountId, enabled: true })),
+        ...accounts.value.filter(a => a.enabled && recordEntryForm.additionalAccountIds.includes(a.id) && !selectedRecordSnapshot.value.details.some(d => d.accountId === a.id))]
+    : accounts.value.filter(account => account.enabled))
     .slice()
     .sort((a, b) => {
       const groupCompare = accountGroupOrder.indexOf(a.categoryGroup) - accountGroupOrder.indexOf(b.categoryGroup);
@@ -409,193 +461,26 @@ const isAccountCreating = computed(() => accountEditingId.value === "new");
 const isAccountEditing = computed(() => accountEditingId.value !== null);
 const accountSubmitLabel = computed(() => (isAccountCreating.value ? "新增账户" : "保存账户"));
 
-const chartSnapshots = computed(() => {
-  if (!snapshots.value || snapshots.value.length < 2) {
-    return null;
-  }
-  return snapshots.value
-    .slice()
-    .sort((a, b) => new Date(a.snapshotDate) - new Date(b.snapshotDate));
-});
-
-const chartData = computed(() => {
-  if (!chartSnapshots.value) {
-    return null;
-  }
-  return {
-    labels: chartSnapshots.value.map((s) => s.snapshotDate),
-    netWorth: chartSnapshots.value.map((s) => (s.netWorth !== null ? Number(s.netWorth) : null)),
-    totalAssets: chartSnapshots.value.map((s) => calculateSnapshotTotalAssets(s)),
-    totalDebt: chartSnapshots.value.map((s) => (s.liabilityTotal !== null ? Number(s.liabilityTotal) : null))
-  };
-});
-
 onMounted(async () => {
   window.addEventListener("hashchange", syncPageFromHash);
+  window.addEventListener("beforeunload", protectDraft);
   await loadAll();
 });
-
 onBeforeUnmount(() => {
   window.removeEventListener("hashchange", syncPageFromHash);
-  if (netWorthChartInstance) {
-    netWorthChartInstance.destroy();
-    netWorthChartInstance = null;
-  }
-  if (formSuccessTimer) {
-    clearTimeout(formSuccessTimer);
-    formSuccessTimer = null;
-  }
+  window.removeEventListener("beforeunload", protectDraft);
+  if (formSuccessTimer) clearTimeout(formSuccessTimer);
 });
-
-watch(currentPage, (page) => {
-  if (page === HOME_PAGE) {
-    renderHomeChart();
-    return;
-  }
-
-  if (netWorthChartInstance) {
-    netWorthChartInstance.destroy();
-    netWorthChartInstance = null;
-  }
-});
-
-function initNetWorthChart() {
-  if (netWorthChartInstance) {
-    netWorthChartInstance.destroy();
-    netWorthChartInstance = null;
-  }
-
-  if (!chartData.value || !netWorthChartRef.value) {
-    return;
-  }
-
-  const ctx = netWorthChartRef.value.getContext("2d");
-  netWorthChartInstance = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels: chartData.value.labels,
-      datasets: [
-        {
-          label: "净资产",
-          data: chartData.value.netWorth,
-          borderColor: "#176a58",
-          backgroundColor: "rgba(23, 106, 88, 0.1)",
-          fill: true,
-          tension: 0.3,
-          pointRadius: 4,
-          pointHoverRadius: 6
-        },
-        {
-          label: "总资产",
-          data: chartData.value.totalAssets,
-          borderColor: "#b05f2f",
-          backgroundColor: "rgba(176, 95, 47, 0.1)",
-          fill: true,
-          tension: 0.3,
-          pointRadius: 4,
-          pointHoverRadius: 6
-        },
-        {
-          label: "总负债",
-          data: chartData.value.totalDebt,
-          borderColor: "#a33d31",
-          backgroundColor: "rgba(163, 61, 49, 0.1)",
-          fill: true,
-          tension: 0.3,
-          pointRadius: 4,
-          pointHoverRadius: 6
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: {
-        mode: "index",
-        intersect: false
-      },
-      plugins: {
-        legend: {
-          position: "top",
-          align: "end",
-          labels: {
-            usePointStyle: true,
-            padding: 20,
-            font: {
-              family: "'Manrope', 'Noto Sans SC', sans-serif",
-              size: 12
-            }
-          }
-        },
-        tooltip: {
-          backgroundColor: "rgba(255, 255, 255, 0.95)",
-          titleColor: "#102127",
-          bodyColor: "#587078",
-          borderColor: "rgba(16, 33, 39, 0.08)",
-          borderWidth: 1,
-          padding: 12,
-          titleFont: {
-            family: "'Manrope', 'Noto Sans SC', sans-serif",
-            weight: "bold"
-          },
-          bodyFont: {
-            family: "'Manrope', 'Noto Sans SC', sans-serif"
-          },
-          callbacks: {
-            label: function (context) {
-              const value = context.parsed.y;
-              if (value === null) return null;
-              return context.dataset.label + ": " + formatAmount(value);
-            }
-          }
-        }
-      },
-      scales: {
-        x: {
-          grid: {
-            display: false
-          },
-          ticks: {
-            font: {
-              family: "'Manrope', 'Noto Sans SC', sans-serif",
-              size: 11
-            },
-            color: "#587078"
-          }
-        },
-        y: {
-          grid: {
-            color: "rgba(16, 33, 39, 0.08)"
-          },
-          ticks: {
-            font: {
-              family: "'Manrope', 'Noto Sans SC', sans-serif",
-              size: 11
-            },
-            color: "#587078",
-            callback: function (value) {
-              if (value >= 10000) {
-                return (value / 10000).toFixed(1) + "万";
-              }
-              return value;
-            }
-          }
-        }
-      }
-    }
-  });
+function protectDraft(event) {
+  if (!recordDirty.value && !isSnapshotEditing.value && !isAccountEditing.value) return;
+  event.preventDefault();
+  event.returnValue = "";
 }
-
-function renderHomeChart() {
-  if (currentPage.value !== HOME_PAGE) {
-    return;
-  }
-
-  nextTick(() => {
-    if (currentPage.value === HOME_PAGE) {
-      initNetWorthChart();
-    }
-  });
+async function ensureSnapshotDetails(snapshot) {
+  if (!snapshot || snapshot.detailsLoaded) return snapshot;
+  const detail = await requestJson(`/api/snapshots/${snapshot.id}`);
+  Object.assign(snapshot, detail, { detailsLoaded: true });
+  return snapshot;
 }
 
 async function loadAll() {
@@ -603,26 +488,18 @@ async function loadAll() {
   error.value = "";
 
   try {
-    const [snapshotsResponse, enabledAccountsResponse, accountsResponse] = await Promise.all([
-      fetch("/api/snapshots"),
-      fetch("/api/snapshots/accounts"),
-      fetch("/api/accounts")
+    const [snapshotList, accountList, entries] = await Promise.all([
+      requestJson("/api/snapshots?includeDetails=false"), requestJson("/api/accounts"), requestJson("/api/dictionary")
     ]);
-
-    if (!snapshotsResponse.ok) {
-      throw new Error(`加载快照失败: ${snapshotsResponse.status}`);
-    }
-    if (!enabledAccountsResponse.ok) {
-      throw new Error(`加载快照账户失败: ${enabledAccountsResponse.status}`);
-    }
-    if (!accountsResponse.ok) {
-      throw new Error(`加载账户失败: ${accountsResponse.status}`);
-    }
-
-    snapshots.value = await snapshotsResponse.json();
-    accountDefinitions.value = await enabledAccountsResponse.json();
-    accounts.value = await accountsResponse.json();
-    syncRecordEntryForm(accounts.value);
+    dictionaryEntries.value = entries;
+    await migrateLegacyTagAdjustments();
+    snapshots.value = snapshotList;
+    snapshotListPage.value = Math.min(snapshotListPage.value, Math.max(1, Math.ceil(snapshotList.length / 20)));
+    accounts.value = accountList;
+    accountDefinitions.value = accountList.filter(a => a.enabled);
+    await Promise.all(snapshots.value.slice(0, 2).map(ensureSnapshotDetails));
+    await loadRecordDate();
+    if (expandedId.value !== null) await ensureSnapshotDetails(snapshots.value.find(s => s.id === expandedId.value));
 
     if (snapshots.value.length > 0 && expandedId.value === null) {
       expandedId.value = snapshots.value[0].id;
@@ -630,7 +507,6 @@ async function loadAll() {
   } catch (err) {
     error.value = err instanceof Error ? err.message : "加载失败";
   } finally {
-    renderHomeChart();
     loading.value = false;
   }
 }
@@ -719,7 +595,8 @@ function createAccountListFilters() {
 
 function createEmptyRecordEntryForm() {
   return {
-    snapshotDate: new Date().toISOString().slice(0, 10),
+    snapshotDate: localDateString(),
+    additionalAccountIds: [],
     note: "",
     amounts: {},
     parentRemarks: {},
@@ -739,44 +616,54 @@ function resetAccountListFilters() {
   Object.assign(accountListFilters, createAccountListFilters());
 }
 
-function syncRecordEntryForm(nextAccounts) {
-  const nextAmounts = {};
-  const nextParentRemarks = {};
-  const nextParentManualOverrides = {};
-
-  nextAccounts
-    .filter((account) => account.enabled)
-    .forEach((account) => {
+function localDateString() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+function recordFingerprint() {
+  return JSON.stringify({ form: recordEntryForm, adjustments: recordEntryTagAdjustments });
+}
+async function loadRecordDate() {
+  const sequence = ++recordLoadSequence;
+  recordReady.value = false;
+  recordDraftNotice.value = "";
+  try {
+    await Promise.all([selectedRecordSnapshot.value, previousRecordSnapshot.value].filter(Boolean).map(ensureSnapshotDetails));
+    if (sequence !== recordLoadSequence) return;
+    const base = recordBaseSnapshot.value;
+    const details = new Map((base?.details ?? []).map(d => [d.accountId, d]));
+    recordEntryForm.additionalAccountIds = [];
+    recordEntryForm.amounts = {};
+    recordEntryForm.parentRemarks = {};
+    recordEntryForm.parentManualOverrides = {};
+    recordEntryForm.note = selectedRecordSnapshot.value?.note ?? "";
+    for (const account of recordEntryEnabledAccounts.value) {
+      const detail = details.get(account.id);
       const key = accountKey(account);
-      const existingAmount = recordEntryForm.amounts[key];
-      const latestAmount = latestRecordDetail(account)?.amount;
-      nextAmounts[key] =
-        existingAmount !== undefined && existingAmount !== ""
-          ? existingAmount
-          : toFieldValue(latestAmount);
-
-      if (isRecordEntryParentAccount(account)) {
-        nextParentManualOverrides[key] = hasRecordEntryChildren(account)
-          ? false
-          : (recordEntryForm.parentManualOverrides[key] ?? false);
+      recordEntryForm.amounts[key] = toFieldValue(detail?.amount);
+      recordEntryForm.parentRemarks[key] = detail?.remark ?? "";
+    }
+    Object.keys(recordEntryTagAdjustments).forEach(k => delete recordEntryTagAdjustments[k]);
+    Object.assign(recordEntryTagAdjustments, selectedRecordSnapshot.value ? (selectedRecordSnapshot.value.tagAdjustments ?? {}) : dictionaryTagDefaults.value);
+    await nextTick();
+    if (sequence !== recordLoadSequence) return;
+    recordBaseline.value = recordFingerprint();
+    try {
+      const draft = JSON.parse(localStorage.getItem(`water.recordDraft.v2.${recordEntryForm.snapshotDate}`) || "null");
+      if (draft?.form?.snapshotDate === recordEntryForm.snapshotDate && draft.form.amounts && typeof draft.form.amounts === "object") {
+        Object.assign(recordEntryForm, draft.form);
+        Object.assign(recordEntryTagAdjustments, draft.adjustments ?? {});
+        recordDraftNotice.value = "已恢复此日期的未保存草稿。";
       }
-    });
-
-  nextAccounts
-    .filter((account) => account.enabled && isRecordEntryParentAccount(account))
-    .forEach((account) => {
-      const key = accountKey(account);
-      const existingRemark = recordEntryForm.parentRemarks[key];
-      const latestRemark = latestRecordDetail(account)?.remark;
-      nextParentRemarks[key] =
-        existingRemark !== undefined && existingRemark !== ""
-          ? existingRemark
-          : (latestRemark ?? "");
-    });
-
-  recordEntryForm.amounts = nextAmounts;
-  recordEntryForm.parentRemarks = nextParentRemarks;
-  recordEntryForm.parentManualOverrides = nextParentManualOverrides;
+    } catch { recordDraftNotice.value = "草稿无法读取，已加载已保存的数据。"; }
+    recordLoadedDate.value = recordEntryForm.snapshotDate;
+    recordReady.value = true;
+  } catch (err) { formError.value = err.message; }
+}
+function discardRecordDraft() {
+  if (!window.confirm("放弃当前日期的草稿，重新加载已保存的数据？")) return;
+  localStorage.removeItem(`water.recordDraft.v2.${recordEntryForm.snapshotDate}`);
+  loadRecordDate();
 }
 
 function isAccountExpanded(accountId) {
@@ -861,14 +748,14 @@ function roundToSingleDecimal(value) {
   return Math.round(numberValue(value) * 10) / 10;
 }
 
-function convertToRmb(amount, currencyCode) {
+function convertToRmb(amount, currencyCode, rate = hkdToCnyRate.value) {
   if (amount === null || amount === undefined || amount === "") {
     return 0;
   }
 
   const numeric = numberValue(amount);
   if (currencyCode === "HKD") {
-    return numeric * 0.87;
+    return numeric * Number(rate);
   }
 
   return numeric;
@@ -898,7 +785,7 @@ function snapshotCategorySignedTotal(snapshot, group) {
     snapshot.details
       .filter((detail) => detail.categoryGroup === group && detail.parentAccountId === null)
       .reduce((sum, detail) => {
-        const amount = convertToRmb(detail.amount, detail.currencyCode);
+        const amount = convertToRmb(detail.amount, detail.currencyCode, snapshot.hkdToCnyRate);
         return sum + (detail.balanceDirection === "DEBT" ? amount * -1 : amount);
       }, 0)
   );
@@ -950,20 +837,12 @@ function recordEntrySameCodeChild(account) {
 
 function recordEntryRollupChildren(account) {
   const children = recordEntryChildren(account);
-  const sameCodeChild = recordEntrySameCodeChild(account);
-  if (children.length > 1 && sameCodeChild) {
-    return children.filter((child) => child.id !== sameCodeChild.id);
-  }
-  return children;
+  const realChildren = children.filter(child => !child.subtotalAccount);
+  return realChildren.some(child => hasRecordEntryValue(child)) ? realChildren : children;
 }
 
 function isRecordEntryHiddenMirrorChild(account) {
-  if (account.parentAccountId === null || account.parentAccountId === undefined) {
-    return false;
-  }
-
-  const parent = accountIdMap.value.get(account.parentAccountId);
-  return Boolean(parent && recordEntryChildren(parent).length > 1 && parent.accountCode === account.accountCode);
+  return Boolean(account.subtotalAccount);
 }
 
 function recordEntryPrimaryInputAccount(account) {
@@ -973,7 +852,7 @@ function recordEntryPrimaryInputAccount(account) {
   }
 
   const sameCodeChild = recordEntrySameCodeChild(account);
-  if (sameCodeChild) {
+  if (sameCodeChild && children.length === 1) {
     return sameCodeChild;
   }
 
@@ -994,11 +873,7 @@ function recordEntryPrimaryInputValue(account) {
 
 function recordEntryVisibleChildren(account) {
   const children = recordEntryChildren(account);
-  const sameCodeChild = recordEntrySameCodeChild(account);
-  if (!sameCodeChild) {
-    return children;
-  }
-  return children.filter((child) => child.id !== sameCodeChild.id);
+  return children.filter(child => !child.subtotalAccount);
 }
 
 function hasRecordEntryChildren(account) {
@@ -1012,18 +887,18 @@ function isRecordEntryParentAccount(account) {
 function recordEntryAggregateAmount(account) {
   const children = recordEntryRollupChildren(account);
   if (children.length === 0) {
-    return roundToSingleDecimal(convertToRmb(recordEntryForm.amounts[accountKey(account)], account.currencyCode));
+    return roundToSingleDecimal(convertToRmb(recordEntryForm.amounts[accountKey(account)], account.currencyCode, recordExchangeRate.value));
   }
 
   return roundToSingleDecimal(children.reduce((sum, child) => sum + recordEntryResolvedAmount(child), 0));
 }
 
 function latestRecordDetail(account) {
-  return latestSnapshotDetailMap.value.get(account.id) ?? null;
+  return recordBaseSnapshot.value?.details?.find(d => d.accountId === account.id) ?? null;
 }
 
 function latestRecordDateLabel() {
-  return latestSnapshot.value?.snapshotDate ?? "";
+  return recordBaseSnapshot.value?.snapshotDate ?? "";
 }
 
 function previousRecordDateLabel() {
@@ -1048,7 +923,7 @@ function recordEntryResolvedAmount(account) {
   }
 
   if (rawValue !== undefined && rawValue !== null && String(rawValue).trim() !== "") {
-    return roundToSingleDecimal(convertToRmb(rawValue, account.currencyCode));
+    return roundToSingleDecimal(convertToRmb(rawValue, account.currencyCode, recordExchangeRate.value));
   }
 
   return 0;
@@ -1064,7 +939,7 @@ function previousRecordAmount(account) {
   if (!detail) {
     return 0;
   }
-  return roundToSingleDecimal(convertToRmb(detail.amount, detail.currencyCode ?? account.currencyCode));
+  return roundToSingleDecimal(convertToRmb(detail.amount, detail.currencyCode ?? account.currencyCode, previousRecordSnapshot.value.hkdToCnyRate));
 }
 
 function recordEntryDelta(account) {
@@ -1082,19 +957,19 @@ function recordEntryDeltaLabel(account) {
   const delta = recordEntryDelta(account);
   if (account.balanceDirection === "DEBT") {
     if (amountDelta > 0) {
-      return `负债增加，净值减少 ${formatSignedDelta(Math.abs(delta), account.currencyCode)}`;
+      return `负债增加，净值减少 ${formatSignedDelta(Math.abs(delta), "CNY")}`;
     }
     if (amountDelta < 0) {
-      return `负债减少，净值增加 ${formatSignedDelta(Math.abs(delta), account.currencyCode)}`;
+      return `负债减少，净值增加 ${formatSignedDelta(Math.abs(delta), "CNY")}`;
     }
     return "较上次无变化";
   }
 
   if (delta > 0) {
-    return `较上次增加 ${formatSignedDelta(delta, account.currencyCode)}`;
+    return `较上次增加 ${formatSignedDelta(delta, "CNY")}`;
   }
   if (delta < 0) {
-    return `较上次减少 ${formatSignedDelta(Math.abs(delta), account.currencyCode)}`;
+    return `较上次减少 ${formatSignedDelta(Math.abs(delta), "CNY")}`;
   }
   return "较上次无变化";
 }
@@ -1161,7 +1036,7 @@ function handleRecordEntryPrimaryAmountInput(root, value) {
 watch(
   () => ({ ...recordEntryForm.amounts }),
   () => {
-    for (const account of accounts.value.filter((item) => item.enabled && isRecordEntryParentAccount(item))) {
+    for (const account of recordEntryEnabledAccounts.value.filter(isRecordEntryParentAccount)) {
       const key = accountKey(account);
       if (recordEntryForm.parentManualOverrides[key]) {
         continue;
@@ -1235,41 +1110,6 @@ function accountDetailDraft(snapshot, account) {
   };
 }
 
-function loadRecordEntryTagAdjustments() {
-  try {
-    const cached = window.localStorage.getItem(RECORD_ENTRY_TAG_ADJUSTMENTS_STORAGE_KEY);
-    if (!cached) {
-      return {};
-    }
-
-    const parsed = JSON.parse(cached);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-
-    return Object.fromEntries(
-      Object.entries(parsed).filter(([tag, value]) =>
-        tag.trim() && String(value ?? "").trim() !== "" && Number.isFinite(Number(value))
-      )
-    );
-  } catch {
-    return {};
-  }
-}
-
-function persistRecordEntryTagAdjustments(values) {
-  try {
-    const cacheableValues = Object.fromEntries(
-      Object.entries(values).filter(([tag, value]) =>
-        tag.trim() && String(value ?? "").trim() !== "" && Number.isFinite(Number(value))
-      )
-    );
-    window.localStorage.setItem(RECORD_ENTRY_TAG_ADJUSTMENTS_STORAGE_KEY, JSON.stringify(cacheableValues));
-  } catch {
-    // 本地缓存不可用时保持当前页面功能，不影响台账录入。
-  }
-}
-
 function openCreateAccountGroupForm() {
   accountEditingId.value = "new";
   formError.value = "";
@@ -1329,7 +1169,8 @@ function openCreateSnapshotForm() {
   });
 }
 
-function openEditSnapshotForm(snapshot) {
+async function openEditSnapshotForm(snapshot) {
+  try { await ensureSnapshotDetails(snapshot); } catch (err) { formError.value = err.message; return; }
   editingId.value = snapshot.id;
   expandedId.value = snapshot.id;
   formError.value = "";
@@ -1343,7 +1184,7 @@ function openEditSnapshotForm(snapshot) {
     balance: toFieldValue(snapshot.balance),
     note: snapshot.note ?? "",
     remark: snapshot.remark ?? "",
-    details: accountDefinitions.value.map((account) => accountDetailDraft(snapshot, account))
+    details: snapshot.details.map(detail => ({ ...detail, amount: toFieldValue(detail.amount) }))
   });
 }
 
@@ -1356,6 +1197,7 @@ function cancelSnapshotEditing() {
 function buildSnapshotPayload() {
   return {
     snapshotDate: snapshotForm.snapshotDate,
+    hkdToCnyRate: isSnapshotCreating.value ? hkdToCnyRate.value : snapshots.value.find(s => s.id === editingId.value)?.hkdToCnyRate,
     income: parseNullableNumber(snapshotForm.income),
     fixedExpense: parseNullableNumber(snapshotForm.fixedExpense),
     profitLoss: parseNullableNumber(snapshotForm.profitLoss),
@@ -1368,7 +1210,9 @@ function buildSnapshotPayload() {
       accountId: detail.accountId,
       accountCode: detail.accountCode,
       amount: parseNullableNumber(detail.amount),
-      currencyCode: detail.currencyCode
+      currencyCode: detail.currencyCode,
+      originalAmount: detail.originalAmount ?? null,
+      remark: detail.remark ?? null
     }))
   };
 }
@@ -1398,13 +1242,9 @@ function buildAccountPayload() {
 function buildRecordEntryPayload() {
   const details = recordEntryEnabledAccounts.value
     .map((account) => {
-      if (isRecordEntryHiddenMirrorChild(account)) {
-        return null;
-      }
-
       const key = accountKey(account);
       const rawAmount = recordEntryForm.amounts[key];
-      const amount = isRecordEntryParentAccount(account) && hasRecordEntryValue(account)
+      const amount = account.summaryAccount && recordEntryRollupChildren(account).some(hasRecordEntryValue)
         ? recordEntryResolvedAmount(account)
         : parseNullableNumber(rawAmount);
       if (amount === null) {
@@ -1419,7 +1259,7 @@ function buildRecordEntryPayload() {
         accountId: account.id,
         accountCode: account.accountCode,
         amount,
-        currencyCode: account.currencyCode,
+        currencyCode: account.summaryAccount && recordEntryRollupChildren(account).some(hasRecordEntryValue) ? "CNY" : account.currencyCode,
         remark
       };
     })
@@ -1427,6 +1267,7 @@ function buildRecordEntryPayload() {
 
   return {
     snapshotDate: recordEntryForm.snapshotDate,
+    hkdToCnyRate: recordExchangeRate.value,
     income: null,
     fixedExpense: null,
     profitLoss: null,
@@ -1510,84 +1351,42 @@ async function submitAccountForm() {
 async function submitRecordEntry() {
   formError.value = "";
   formSuccess.value = "";
-  if (!recordEntryForm.snapshotDate) {
-    formError.value = "记录日期不能为空";
-    return;
-  }
-
+  if (!recordReady.value || !recordEntryForm.snapshotDate) { formError.value = "请选择日期并等待数据加载。"; return; }
   const payload = buildRecordEntryPayload();
-  if (payload.details.length === 0) {
-    formError.value = "请至少填写一个账户金额";
-    return;
-  }
-
+  if (!payload.details.length) { formError.value = "请至少填写一个账户金额"; return; }
   saving.value = true;
   try {
-    let existingSnapshot = await findSnapshotByDate(recordEntryForm.snapshotDate);
-    if (existingSnapshot) {
-      await deleteSnapshotById(existingSnapshot.id);
-    }
-
-    try {
-      await createSnapshotFromPayload(payload);
-    } catch (err) {
-      if (!(err instanceof Error) || !err.message.includes("409")) {
-        throw err;
+    const existing = await findSnapshotByDate(payload.snapshotDate);
+    if (existing) {
+      const loaded = selectedRecordSnapshot.value;
+      if (!loaded || loaded.id !== existing.id || JSON.stringify(loaded.details) !== JSON.stringify(existing.details)
+          || loaded.note !== existing.note || JSON.stringify(loaded.tagAdjustments) !== JSON.stringify(existing.tagAdjustments)) {
+        throw new Error("该日期的记录已变化，请放弃草稿或重新加载后核对，再保存。原记录未修改。");
       }
-
-      existingSnapshot = await findSnapshotByDate(recordEntryForm.snapshotDate);
-      if (!existingSnapshot) {
-        throw err;
-      }
-
-      await deleteSnapshotById(existingSnapshot.id);
-      await createSnapshotFromPayload(payload);
+      // The record screen edits balances and its note only; preserve all other snapshot fields.
+      for (const key of ["income", "fixedExpense", "profitLoss", "publicFunds", "extraAmount", "balance", "remark"]) payload[key] = existing[key];
+      const before = new Map(existing.details.map(d => [d.accountId, d]));
+      payload.details = payload.details.map(d => ({ ...before.get(d.accountId), ...d,
+        originalAmount: before.get(d.accountId)?.originalAmount ?? null,
+        remark: d.remark ?? before.get(d.accountId)?.remark ?? null }));
+      const changed = payload.details.filter(d => Number(d.amount) !== Number(before.get(d.accountId)?.amount)).length;
+      if (!window.confirm(`更新 ${payload.snapshotDate} 的记录？${changed} 个账户金额变化；收入、支出和其他快照字段将保留。`)) return;
     }
-
+    payload.tagAdjustments = { ...recordEntryTagAdjustments };
+    await requestJson(existing ? `/api/snapshots/${existing.id}` : "/api/snapshots", {
+      method: existing ? "PUT" : "POST", body: JSON.stringify(payload)
+    });
+    recordReady.value = false;
+    try { localStorage.removeItem(`water.recordDraft.v2.${payload.snapshotDate}`); } catch { /* Server save succeeded. */ }
     await loadAll();
-    formError.value = "";
     showFormSuccess("保存记录成功");
   } catch (err) {
-    formError.value = err instanceof Error ? err.message : "保存记录失败";
-  } finally {
-    saving.value = false;
-  }
+    formError.value = err.status === 409 ? "记录或汇率配置已变化，请重新加载后核对。原记录未删除，草稿已保留。" : err.message;
+  } finally { saving.value = false; }
 }
-
-async function findSnapshotByDate(snapshotDate) {
-  const response = await fetch("/api/snapshots");
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `加载快照失败: ${response.status}`);
-  }
-
-  const snapshotList = await response.json();
-  return snapshotList.find((snapshot) => snapshot.snapshotDate === snapshotDate) ?? null;
-}
-
-async function deleteSnapshotById(id) {
-  const response = await fetch(`/api/snapshots/${id}`, { method: "DELETE" });
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `删除旧记录失败: ${response.status}`);
-  }
-}
-
-async function createSnapshotFromPayload(payload) {
-  const response = await fetch("/api/snapshots", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `POST /api/snapshots failed: ${response.status}`);
-  }
-
-  return response.json();
+async function findSnapshotByDate(date) {
+  try { return await requestJson(`/api/snapshots/by-date/${date}`); }
+  catch (err) { if (err.status === 404) return null; throw err; }
 }
 
 async function deleteSnapshot(id) {
@@ -1656,8 +1455,12 @@ async function deleteAccount(account) {
   }
 }
 
-function toggleSnapshot(id) {
-  expandedId.value = expandedId.value === id ? null : id;
+async function toggleSnapshot(id) {
+  if (expandedId.value === id) { expandedId.value = null; return; }
+  try {
+    await ensureSnapshotDetails(snapshots.value.find(s => s.id === id));
+    expandedId.value = id;
+  } catch (err) { error.value = err.message; }
 }
 
 function formatAmount(value, currencyCode = "CNY") {
@@ -1792,27 +1595,11 @@ function formTone(account) {
 
       </section>
 
-      <div v-if="currentPage === HOME_PAGE" class="chart-card content-card">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Trend</p>
-            <h2>净资产趋势</h2>
-          </div>
-        </div>
-
-        <div v-if="!chartData" class="chart-empty">暂无趋势数据</div>
-        <div v-else class="chart-wrapper">
-          <canvas ref="netWorthChartRef"></canvas>
-        </div>
-      </div>
-
-      <section v-if="formError" class="content-card">
-        <div class="state-panel error">{{ formError }}</div>
-      </section>
-
-      <section v-if="formSuccess" class="content-card">
-        <div class="state-panel success">{{ formSuccess }}</div>
-      </section>
+      <div v-if="formError" class="state-panel error" role="alert">{{ formError }}</div>
+      <div v-if="formSuccess" class="state-panel" role="status">{{ formSuccess }}</div>
+      <div v-if="loading && currentPage === HOME_PAGE" class="state-panel">正在加载数据...</div>
+      <div v-else-if="error && currentPage === HOME_PAGE" class="state-panel error">{{ error }}</div>
+      <HomeOverview v-else-if="currentPage === HOME_PAGE" :snapshots="snapshots" :format-amount="formatAmount" :convert-to-rmb="convertToRmb" />
 
       <template v-if="currentPage === SNAPSHOTS_PAGE">
         <section v-if="isSnapshotEditing" class="content-card form-card">
@@ -1999,17 +1786,26 @@ function formTone(account) {
             </div>
           </div>
 
+          <nav v-if="!loading && !error && snapshots.length" class="snapshot-pagination" aria-label="快照分页">
+            <span class="snapshot-pagination-range">第 {{ (snapshotListPage - 1) * 20 + 1 }}–{{ Math.min(snapshotListPage * 20, snapshots.length) }} 条，共 {{ snapshots.length }} 条</span>
+            <div class="snapshot-pagination-controls">
+              <button class="ghost-button small-button" type="button" :disabled="snapshotListPage <= 1" @click="snapshotListPage--">上一页</button>
+              <span class="snapshot-page-label" role="status" aria-live="polite">第 {{ snapshotListPage }} / {{ snapshotPageCount }} 页</span>
+              <button class="ghost-button small-button" type="button" :disabled="snapshotListPage >= snapshotPageCount" @click="snapshotListPage++">下一页</button>
+            </div>
+          </nav>
+
           <div v-if="loading" class="state-panel">正在加载数据...</div>
           <div v-else-if="error" class="state-panel error">{{ error }}</div>
           <div v-else-if="snapshots.length === 0" class="state-panel">暂无数据</div>
 
           <div v-else class="snapshot-list">
-            <article v-for="snapshot in snapshots" :key="snapshot.id" class="snapshot-item">
+            <article v-for="snapshot in visibleSnapshots" :key="snapshot.id" class="snapshot-item">
               <button class="snapshot-row" type="button" @click="toggleSnapshot(snapshot.id)">
                 <div class="snapshot-row-main">
                   <div class="snapshot-row-title">
                     <span class="snapshot-date">{{ snapshot.snapshotDate }}</span>
-                    <span class="snapshot-row-tag">{{ snapshot.details.length }} 个账户</span>
+                    <span v-if="snapshot.detailsLoaded" class="snapshot-row-tag">{{ snapshot.details.length }} 个账户</span>
                   </div>
                   <div class="snapshot-row-meta">
                     <span>总资产 {{ formatAmount(calculateSnapshotTotalAssets(snapshot)) }}</span>
@@ -2280,7 +2076,8 @@ function formTone(account) {
       </template>
 
       <template v-if="currentPage === RECORD_ENTRY_PAGE">
-        <section class="content-card record-entry-shell">
+        <DictionarySettings v-if="!loading && !error" :entries="dictionaryEntries" :tags="dictionaryTagNames" @saved="updateDictionary" />
+        <section class="content-card record-entry-shell" :inert="saving || undefined">
           <div class="record-entry-top">
             <div class="record-entry-title">
               <h2>录入台账</h2>
@@ -2290,7 +2087,7 @@ function formTone(account) {
             <div class="record-entry-actions">
               <label class="field record-date-field">
                 <span>记录日期</span>
-                <input v-model="recordEntryForm.snapshotDate" type="date" />
+                <input v-model="recordEntryForm.snapshotDate" type="date" :disabled="saving" />
               </label>
               <div v-if="latestSnapshot" class="record-last-date">
                 <span>上次记录</span>
@@ -2300,12 +2097,20 @@ function formTone(account) {
                 <span>对比基准</span>
                 <strong>{{ previousRecordDateLabel() }}</strong>
               </div>
-              <button class="primary-button" type="button" :disabled="saving" @click="submitRecordEntry">
+              <button class="primary-button" type="button" :disabled="saving || !recordReady" @click="submitRecordEntry">
                 {{ saving ? "保存中..." : "保存记录" }}
               </button>
             </div>
           </div>
 
+          <p role="status">{{ recordDraftNotice }} {{ !recordReady ? '正在加载所选日期...' : recordDirty ? '有未保存修改，已尝试保存本地草稿。' : '当前没有未保存修改。' }}</p>
+          <p>本次汇率：1 HKD = {{ recordExchangeRate }} CNY{{ selectedRecordSnapshot ? "（快照当期汇率）" : "（数据库配置）" }}</p>
+          <p>金额来源：{{ recordBaseSnapshot?.snapshotDate ?? '无历史记录' }}。{{ selectedRecordSnapshot ? '编辑已有记录，保留当时账户。' : '空白账户尚未录入，保存时不计入。' }}</p>
+          <button v-if="recordDirty" class="ghost-button" :disabled="saving" @click="discardRecordDraft">放弃草稿</button>
+          <div v-if="selectedRecordSnapshot && recordAccountCandidates.length" class="button-row">
+            <label class="field">添加到账户明细<select v-model="recordAccountToAdd"><option value="">选择要补录的账户</option><option v-for="account in recordAccountCandidates" :key="account.id" :value="account.id">{{ account.accountName }}</option></select></label>
+            <button class="ghost-button" :disabled="!recordAccountToAdd || saving || !recordReady" @click="addRecordAccount">添加到本次记录</button>
+          </div>
           <div class="record-entry-summary">
             <article class="record-summary-card" data-tone="cash">
               <span>现金</span>
@@ -2500,6 +2305,7 @@ function formTone(account) {
           <section class="record-tag-overview">
             <div class="record-tag-head">
               <h3>标签汇总</h3>
+
               <div class="record-tag-head-actions">
                 <span>{{ recordEntryTagTotals.length }} 个标签</span>
                 <button
@@ -2543,8 +2349,8 @@ function formTone(account) {
                   </div>
                   <label class="record-tag-adjustment-row">
                     <div>
-                      <strong>临时调整</strong>
-                      <span>原汇总 {{ formatAmount(item.baseTotal) }}，仅当前页面生效</span>
+                      <strong>本次调整</strong>
+                      <span>原汇总 {{ formatAmount(item.baseTotal) }}，随本次快照保存；默认值在金额与汇率配置中设置</span>
                     </div>
                     <div class="record-tag-adjustment-control">
                       <span>±</span>

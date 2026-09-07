@@ -21,6 +21,8 @@ public record AssetSnapshotResponse(
         String note,
         String remark,
         Integer sourceRowNumber,
-        List<AssetSnapshotDetailDto> details
+        List<AssetSnapshotDetailDto> details,
+        java.util.Map<String, BigDecimal> tagAdjustments,
+        BigDecimal hkdToCnyRate
 ) {
 }

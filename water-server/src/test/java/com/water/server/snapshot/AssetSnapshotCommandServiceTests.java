@@ -23,6 +23,9 @@ class AssetSnapshotCommandServiceTests {
     private static final Path DB_PATH = createTempDbPath();
 
     @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+    @Autowired
     private AssetSnapshotCommandService assetSnapshotCommandService;
 
     @Autowired
@@ -239,6 +242,8 @@ class AssetSnapshotCommandServiceTests {
                 true,
                 null
         ));
+
+        jdbcTemplate.update("UPDATE asset_account SET is_subtotal = 1 WHERE id = ?", sameCodeMirror.id());
 
         AssetSnapshotResponse created = assetSnapshotCommandService.createSnapshot(new AssetSnapshotUpsertRequest(
                 LocalDate.of(2026, 4, 2),

@@ -18,6 +18,7 @@ public record AssetSnapshotDetailDto(
         String amountSource,
         Boolean computed,
         String remark,
-        List<String> tags
+        List<String> tags,
+        Boolean subtotalAccount
 ) {
 }
