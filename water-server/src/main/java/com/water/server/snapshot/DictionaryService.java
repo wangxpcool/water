@@ -46,6 +46,11 @@ public class DictionaryService {
         return result;
     }
 
+    public BigDecimal usdToCnyRate() {
+        return list().stream().filter(e -> e.dictType().equals("EXCHANGE_RATE") && e.dictKey().equals("USD_CNY"))
+                .map(Entry::value).findFirst().orElse(null);
+    }
+
     @Transactional
     public List<Entry> save(List<Input> entries, boolean missingOnly) {
         if (entries == null || entries.size() > 100) throw badRequest("Provide at most 100 dictionary entries");
@@ -73,8 +78,8 @@ public class DictionaryService {
             throw badRequest("Invalid dictionary entry; use a decimal with up to 24 digits and 8 decimal places");
         }
         if ("EXCHANGE_RATE".equals(entry.dictType())) {
-            if (!"HKD_CNY".equals(entry.dictKey()) || entry.value().signum() <= 0) {
-                throw badRequest("HKD_CNY exchange rate must be positive");
+            if (!List.of("HKD_CNY", "USD_CNY").contains(entry.dictKey()) || entry.value().signum() <= 0) {
+                throw badRequest("Supported exchange rates are HKD_CNY and USD_CNY; rate must be positive");
             }
         } else if (!"TAG_ADJUSTMENT".equals(entry.dictType())) {
             throw badRequest("Unsupported dictionary type");

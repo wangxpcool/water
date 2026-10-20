@@ -45,7 +45,9 @@ public class AssetSnapshotCommandService {
         if (request.hkdToCnyRate() != null && request.hkdToCnyRate().compareTo(rate) != 0) {
             throw new ResponseStatusException(CONFLICT, "Exchange rate changed; reload the configuration before saving");
         }
-        SnapshotAggregate aggregate = buildAggregate(request, accounts, rate);
+        BigDecimal usdRate = dictionary.usdToCnyRate();
+        validateUsdRate(request.usdToCnyRate(), usdRate);
+        SnapshotAggregate aggregate = buildAggregate(request, accounts, rate, usdRate);
         KeyHolder keyHolder = new GeneratedKeyHolder();
 
         try {
@@ -86,6 +88,7 @@ public class AssetSnapshotCommandService {
         saveDetails(key.longValue(), aggregate.persistedDetails());
         saveContext(key.longValue(), accounts, aggregate, request);
         context.saveRate(key.longValue(), rate);
+        context.saveUsdRate(key.longValue(), usdRate);
         return assetSnapshotQueryService.findSnapshotById(key.longValue());
     }
 
@@ -101,7 +104,14 @@ public class AssetSnapshotCommandService {
         if (request.hkdToCnyRate() != null && request.hkdToCnyRate().compareTo(rate) != 0) {
             throw new ResponseStatusException(CONFLICT, "Exchange rate changed; reload the configuration before saving");
         }
-        SnapshotAggregate aggregate = buildAggregate(request, accounts, rate);
+        BigDecimal usdRate = context.usdToCnyRate(id);
+        // Adding the first USD balance to an existing CNY snapshot requires an explicit rate.
+        // Once set, the snapshot rate is immutable, even when the dictionary changes.
+        if (usdRate == null && request.usdToCnyRate() != null) {
+            usdRate = dictionary.usdToCnyRate();
+        }
+        validateUsdRate(request.usdToCnyRate(), usdRate);
+        SnapshotAggregate aggregate = buildAggregate(request, accounts, rate, usdRate);
 
         try {
             int updated = jdbcTemplate.update("""
@@ -138,6 +148,7 @@ public class AssetSnapshotCommandService {
         jdbcTemplate.update("DELETE FROM asset_snapshot_group_detail WHERE snapshot_id = ?", id);
         saveDetails(id, aggregate.persistedDetails());
         saveContext(id, accounts, aggregate, request);
+        context.saveUsdRate(id, usdRate);
         return assetSnapshotQueryService.findSnapshotById(id);
     }
 
@@ -170,7 +181,14 @@ public class AssetSnapshotCommandService {
         }
     }
 
-    private SnapshotAggregate buildAggregate(AssetSnapshotUpsertRequest request, List<AssetAccountOptionDto> accounts, BigDecimal rate) {
+    private void validateUsdRate(BigDecimal expected, BigDecimal actual) {
+        if (expected != null && (actual == null || expected.signum() <= 0 || expected.compareTo(actual) != 0)) {
+            throw new ResponseStatusException(CONFLICT, "USD exchange rate changed or is not configured; reload before saving");
+        }
+    }
+
+    private SnapshotAggregate buildAggregate(AssetSnapshotUpsertRequest request, List<AssetAccountOptionDto> accounts,
+            BigDecimal rate, BigDecimal usdRate) {
         Map<Long, AssetAccountOptionDto> accountsById = accounts.stream()
                 .collect(Collectors.toMap(AssetAccountOptionDto::id, account -> account, (left, right) -> left, LinkedHashMap::new));
         Map<String, List<AssetAccountOptionDto>> accountsByCode = accounts.stream()
@@ -204,7 +222,7 @@ public class AssetSnapshotCommandService {
         }
 
         for (AssetAccountOptionDto account : accounts) {
-            computeSummaryDetail(account, childrenByParent, persistedByAccountId, rate);
+            computeSummaryDetail(account, childrenByParent, persistedByAccountId, rate, usdRate);
         }
 
         BigDecimal cashTotal = BigDecimal.ZERO;
@@ -221,7 +239,7 @@ public class AssetSnapshotCommandService {
                 continue;
             }
 
-            BigDecimal amount = amountInReportingCurrency(detail, account, rate);
+            BigDecimal amount = amountInReportingCurrency(detail, account, rate, usdRate);
             if ("DEBT".equals(account.balanceDirection())) {
                 liabilityTotal = liabilityTotal.add(amount);
             } else {
@@ -303,7 +321,8 @@ public class AssetSnapshotCommandService {
             AssetAccountOptionDto account,
             Map<Long, List<AssetAccountOptionDto>> childrenByParent,
             Map<Long, PersistedDetail> persistedByAccountId,
-            BigDecimal rate
+            BigDecimal rate,
+            BigDecimal usdRate
     ) {
         PersistedDetail existing = persistedByAccountId.get(account.id());
         if (!Boolean.TRUE.equals(account.summaryAccount())) {
@@ -318,11 +337,11 @@ public class AssetSnapshotCommandService {
 
         BigDecimal sum = null;
         for (AssetAccountOptionDto child : children) {
-            PersistedDetail childDetail = computeSummaryDetail(child, childrenByParent, persistedByAccountId, rate);
+            PersistedDetail childDetail = computeSummaryDetail(child, childrenByParent, persistedByAccountId, rate, usdRate);
             if (childDetail == null || childDetail.amount() == null) {
                 continue;
             }
-            BigDecimal childAmount = amountInReportingCurrency(childDetail, child, rate);
+            BigDecimal childAmount = amountInReportingCurrency(childDetail, child, rate, usdRate);
             sum = sum == null ? childAmount : sum.add(childAmount);
         }
 
@@ -349,12 +368,22 @@ public class AssetSnapshotCommandService {
         return realChildren.isEmpty() ? children : realChildren;
     }
 
-    private BigDecimal amountInReportingCurrency(PersistedDetail detail, AssetAccountOptionDto account, BigDecimal rate) {
+    private BigDecimal amountInReportingCurrency(PersistedDetail detail, AssetAccountOptionDto account,
+            BigDecimal rate, BigDecimal usdRate) {
         String currencyCode = normalizeCurrencyCode(detail.currencyCode(), account.currencyCode());
         if ("HKD".equals(currencyCode)) {
             return detail.amount().multiply(rate).setScale(1, RoundingMode.HALF_UP);
         }
-        return detail.amount();
+        if ("USD".equals(currencyCode)) {
+            if (usdRate == null || usdRate.signum() <= 0) {
+                throw new ResponseStatusException(CONFLICT, "Configure and submit USD_CNY before recording USD balances");
+            }
+            return detail.amount().multiply(usdRate).setScale(1, RoundingMode.HALF_UP);
+        }
+        if ("CNY".equals(currencyCode)) {
+            return detail.amount();
+        }
+        throw new ResponseStatusException(CONFLICT, "Unsupported currency: " + currencyCode);
     }
 
     private void saveDetails(long snapshotId, List<PersistedDetail> details) {

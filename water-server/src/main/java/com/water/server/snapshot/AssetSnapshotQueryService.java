@@ -76,7 +76,8 @@ public class AssetSnapshotQueryService {
                         row.sourceRowNumber(),
                         detailMap.getOrDefault(row.id(), List.of()),
                         includeDetails ? context.adjustments(row.id()) : Map.of(),
-                        includeDetails && context.exists(row.id()) ? context.hkdToCnyRate(row.id()) : null
+                        includeDetails && context.exists(row.id()) ? context.hkdToCnyRate(row.id()) : null,
+                        includeDetails ? context.usdToCnyRate(row.id()) : null
                 ))
                 .toList();
     }
@@ -128,7 +129,8 @@ public class AssetSnapshotQueryService {
                 row.sourceRowNumber(),
                 detailMap.getOrDefault(id, List.of()),
                 context.adjustments(id),
-                context.hkdToCnyRate(id)
+                context.hkdToCnyRate(id),
+                context.usdToCnyRate(id)
         );
     }
 
@@ -286,7 +288,7 @@ public class AssetSnapshotQueryService {
                 SELECT d.account_id, d.amount
                 FROM asset_snapshot_detail d
                 JOIN asset_account a ON a.id = d.account_id
-                WHERE d.snapshot_id = ?
+                WHERE d.snapshot_id = ? AND d.currency_code = a.currency_code
                 """, (rs, rowNum) -> latestAmounts.put(rs.getLong("account_id"), rs.getBigDecimal("amount")), snapshotId);
         jdbcTemplate.query("""
                 SELECT group_id, amount

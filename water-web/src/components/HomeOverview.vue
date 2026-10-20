@@ -18,12 +18,12 @@ const rows = computed(() => {
 });
 const changes = computed(() => {
   if (!previous.value) return [];
-  const signed = (d, rate) => props.convertToRmb(d.amount, d.currencyCode, rate) * (d.balanceDirection === 'DEBT' ? -1 : 1);
+  const signed = (d, snapshot) => props.convertToRmb(d.amount, d.currencyCode, snapshot.hkdToCnyRate, snapshot.usdToCnyRate) * (d.balanceDirection === 'DEBT' ? -1 : 1);
   const before = new Map((previous.value.details ?? []).filter(d => !d.summaryAccount && !d.subtotalAccount).map(d => [d.accountId, d]));
   const after = new Map((latest.value?.details ?? []).filter(d => !d.summaryAccount && !d.subtotalAccount).map(d => [d.accountId, d]));
   return [...new Set([...before.keys(), ...after.keys()])].map(id => ({
     id, name: (after.get(id) ?? before.get(id)).accountName,
-    delta: (after.has(id) ? signed(after.get(id), latest.value.hkdToCnyRate) : 0) - (before.has(id) ? signed(before.get(id), previous.value.hkdToCnyRate) : 0)
+    delta: (after.has(id) ? signed(after.get(id), latest.value) : 0) - (before.has(id) ? signed(before.get(id), previous.value) : 0)
   })).filter(r => Math.abs(r.delta) > 0.001).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 5);
 });
 watch([canvas, rows], () => {

@@ -34,6 +34,9 @@ class AssetSnapshotCommandServiceTests {
     @Autowired
     private AssetAccountCommandService assetAccountCommandService;
 
+    @Autowired
+    private DictionaryService dictionary;
+
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + DB_PATH.toAbsolutePath());
@@ -42,6 +45,8 @@ class AssetSnapshotCommandServiceTests {
 
     @Test
     void createsUpdatesAndDeletesSnapshot() {
+        dictionary.save(List.of(new DictionaryService.Input("EXCHANGE_RATE", "USD_CNY",
+                new BigDecimal("7"), "USD", null)), false);
         AssetSnapshotResponse created = assetSnapshotCommandService.createSnapshot(new AssetSnapshotUpsertRequest(
                 LocalDate.of(2026, 3, 23),
                 new BigDecimal("2.5"),
@@ -62,10 +67,10 @@ class AssetSnapshotCommandServiceTests {
 
         assertEquals(LocalDate.of(2026, 3, 23), created.snapshotDate());
         assertEquals(new BigDecimal("100.5"), created.cashTotal());
-        assertEquals(new BigDecimal("12.8"), created.investmentTotal());
+        assertEquals(new BigDecimal("89.6"), created.investmentTotal());
         assertEquals(new BigDecimal("30"), created.liabilityTotal());
-        assertEquals(new BigDecimal("113.3"), created.grossAccountValue());
-        assertEquals(new BigDecimal("83.3"), created.netWorth());
+        assertEquals(new BigDecimal("190.1"), created.grossAccountValue());
+        assertEquals(new BigDecimal("160.1"), created.netWorth());
         assertTrue(created.details().stream().anyMatch(detail ->
                 detail.accountCode().equals("DEFAULT_BANK_CARD")
                         && Boolean.FALSE.equals(detail.computed())

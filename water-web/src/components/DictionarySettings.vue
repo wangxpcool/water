@@ -5,12 +5,14 @@ import { requestJson } from '../api.js';
 const props = defineProps({ entries: { type: Array, required: true }, tags: { type: Array, default: () => [] } });
 const emit = defineEmits(['saved']);
 const rate = ref('');
+const usdRate = ref('');
 const amounts = reactive({});
 const busy = ref(false);
 const message = ref('');
 const failed = ref(false);
 watch(() => [props.entries, props.tags], () => {
   rate.value = String(props.entries.find(e => e.dictType === 'EXCHANGE_RATE' && e.dictKey === 'HKD_CNY')?.value ?? '');
+  usdRate.value = String(props.entries.find(e => e.dictType === 'EXCHANGE_RATE' && e.dictKey === 'USD_CNY')?.value ?? '');
   Object.keys(amounts).forEach(key => delete amounts[key]);
   props.tags.forEach(tag => { amounts[tag] = '0'; });
   props.entries.filter(e => e.dictType === 'TAG_ADJUSTMENT').forEach(e => { amounts[e.dictKey] = String(e.value); });
@@ -25,6 +27,18 @@ async function save() {
     return;
   }
   const entries = [{ dictType: 'EXCHANGE_RATE', dictKey: 'HKD_CNY', value: rate.value, displayName: '港币兑人民币', remark: '1 HKD 对应的 CNY 金额' }];
+  if (usdRate.value !== '') {
+    if (!Number.isFinite(Number(usdRate.value)) || Number(usdRate.value) <= 0) {
+      failed.value = true;
+      message.value = '美元汇率必须大于 0。';
+      return;
+    }
+    entries.push({ dictType: 'EXCHANGE_RATE', dictKey: 'USD_CNY', value: usdRate.value, displayName: '美元兑人民币', remark: '1 USD 对应的 CNY 金额；历史快照保留当期汇率' });
+  } else if (props.entries.some(e => e.dictType === 'EXCHANGE_RATE' && e.dictKey === 'USD_CNY')) {
+    failed.value = true;
+    message.value = '已配置的美元汇率不能留空。';
+    return;
+  }
   for (const [tag, value] of Object.entries(amounts)) {
     if (String(value).trim() === '' || !Number.isFinite(Number(value))) {
       failed.value = true;
@@ -50,6 +64,7 @@ async function save() {
       <fieldset :disabled="busy" class="dictionary-fields">
         <div class="form-grid">
           <label class="field"><span>港币兑人民币（1 HKD = 多少 CNY）</span><input v-model="rate" type="number" step="0.00000001" min="0.00000001" required /></label>
+          <label class="field"><span>美元兑人民币（1 USD = 多少 CNY）</span><input v-model="usdRate" type="number" step="0.00000001" min="0.00000001" placeholder="录入美元账户前必须配置" /></label>
           <label v-for="(_, tag) in amounts" :key="tag" class="field"><span>{{ tag }} · 默认调整金额</span><input v-model="amounts[tag]" type="number" step="0.01" required /></label>
         </div>
         <button class="primary-button" type="submit">{{ busy ? '保存中...' : '保存金额与汇率配置' }}</button>

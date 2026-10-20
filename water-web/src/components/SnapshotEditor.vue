@@ -93,7 +93,7 @@ defineProps({
 
         <label class="field compact-field">
           <span>金额</span>
-          <input v-model="detail.amount" type="number" step="0.01" @wheel.prevent />
+          <input v-model="detail.amount" type="number" step="any" @wheel.prevent />
         </label>
 
         <p v-if="detail.categoryGroup === 'LIABILITY'" class="detail-note">

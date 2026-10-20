@@ -32,6 +32,10 @@ public class SnapshotContextService {
         if (!jdbc.query("PRAGMA table_info(asset_snapshot_context)", (rs, n) -> rs.getString("name")).contains("hkd_to_cny_rate")) {
             jdbc.execute("ALTER TABLE asset_snapshot_context ADD COLUMN hkd_to_cny_rate TEXT NOT NULL DEFAULT '0.87'");
         }
+        // Unknown historical USD rates must remain unknown; never backfill with today's rate.
+        if (!jdbc.query("PRAGMA table_info(asset_snapshot_context)", (rs, n) -> rs.getString("name")).contains("usd_to_cny_rate")) {
+            jdbc.execute("ALTER TABLE asset_snapshot_context ADD COLUMN usd_to_cny_rate TEXT");
+        }
     }
 
     public boolean exists(long id) {
@@ -47,6 +51,17 @@ public class SnapshotContextService {
 
     public void saveRate(long id, BigDecimal rate) {
         jdbc.update("UPDATE asset_snapshot_context SET hkd_to_cny_rate = ? WHERE snapshot_id = ?", rate.toPlainString(), id);
+    }
+
+    public BigDecimal usdToCnyRate(long id) {
+        List<String> values = jdbc.query("SELECT usd_to_cny_rate FROM asset_snapshot_context WHERE snapshot_id = ?",
+                (rs, n) -> rs.getString(1), id);
+        return values.isEmpty() || values.get(0) == null ? null : new BigDecimal(values.get(0));
+    }
+
+    public void saveUsdRate(long id, BigDecimal rate) {
+        jdbc.update("UPDATE asset_snapshot_context SET usd_to_cny_rate = ? WHERE snapshot_id = ?",
+                rate == null ? null : rate.toPlainString(), id);
     }
 
     public List<AssetAccountOptionDto> accounts(long id) {

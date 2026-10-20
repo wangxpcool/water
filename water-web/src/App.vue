@@ -24,6 +24,10 @@ const accountDefinitions = ref([]);
 const accounts = ref([]);
 const dictionaryEntries = ref([]);
 const hkdToCnyRate = computed(() => Number(dictionaryEntries.value.find(e => e.dictType === "EXCHANGE_RATE" && e.dictKey === "HKD_CNY")?.value));
+const usdToCnyRate = computed(() => dictionaryEntries.value.find(e => e.dictType === "EXCHANGE_RATE" && e.dictKey === "USD_CNY")?.value ?? null);
+const recordUsdExchangeRate = computed(() => selectedRecordSnapshot.value?.usdToCnyRate
+  ?? (selectedRecordSnapshot.value && !recordEntryEnabledAccounts.value.some(a => a.currencyCode === "USD")
+    ? null : usdToCnyRate.value));
 const dictionaryTagDefaults = computed(() => Object.fromEntries(dictionaryEntries.value.filter(e => e.dictType === "TAG_ADJUSTMENT").map(e => [e.dictKey, e.value])));
 const dictionaryTagNames = computed(() => [...new Set(accounts.value.flatMap(a => a.tags ?? []))]);
 const recordExchangeRate = computed(() => selectedRecordSnapshot.value?.hkdToCnyRate ?? hkdToCnyRate.value);
@@ -620,8 +624,11 @@ function localDateString() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
+function recordCurrencySignature() {
+  return recordEntryEnabledAccounts.value.map(a => `${a.id}:${a.currencyCode}`).sort().join("|");
+}
 function recordFingerprint() {
-  return JSON.stringify({ form: recordEntryForm, adjustments: recordEntryTagAdjustments });
+  return JSON.stringify({ form: recordEntryForm, adjustments: recordEntryTagAdjustments, currencies: recordCurrencySignature() });
 }
 async function loadRecordDate() {
   const sequence = ++recordLoadSequence;
@@ -640,8 +647,21 @@ async function loadRecordDate() {
     for (const account of recordEntryEnabledAccounts.value) {
       const detail = details.get(account.id);
       const key = accountKey(account);
-      recordEntryForm.amounts[key] = toFieldValue(detail?.amount);
+      // A previous CNY valuation must never become a USD balance when the account default changes.
+      const sameCurrency = detail?.currencyCode === account.currencyCode;
+      recordEntryForm.amounts[key] = sameCurrency ? toFieldValue(detail.amount) : "";
+      if (detail && !sameCurrency && !account.summaryAccount) recordDraftNotice.value = "部分账户币种已变更，金额已留空，请按新币种录入。";
       recordEntryForm.parentRemarks[key] = detail?.remark ?? "";
+    }
+    if (!selectedRecordSnapshot.value) {
+      for (const group of recordEntryEnabledAccounts.value.filter(a => a.summaryAccount)) {
+        const changedCurrency = recordEntryChildren(group).some(child => {
+          const prior = details.get(child.id);
+          return prior && prior.currencyCode !== child.currencyCode;
+        });
+        // Otherwise a stale group total silently retains the blank child's previous valuation.
+        if (changedCurrency) recordEntryForm.amounts[accountKey(group)] = "";
+      }
     }
     Object.keys(recordEntryTagAdjustments).forEach(k => delete recordEntryTagAdjustments[k]);
     Object.assign(recordEntryTagAdjustments, selectedRecordSnapshot.value ? (selectedRecordSnapshot.value.tagAdjustments ?? {}) : dictionaryTagDefaults.value);
@@ -650,10 +670,12 @@ async function loadRecordDate() {
     recordBaseline.value = recordFingerprint();
     try {
       const draft = JSON.parse(localStorage.getItem(`water.recordDraft.v2.${recordEntryForm.snapshotDate}`) || "null");
-      if (draft?.form?.snapshotDate === recordEntryForm.snapshotDate && draft.form.amounts && typeof draft.form.amounts === "object") {
+      if (draft?.currencies === recordCurrencySignature() && draft?.form?.snapshotDate === recordEntryForm.snapshotDate && draft.form.amounts && typeof draft.form.amounts === "object") {
         Object.assign(recordEntryForm, draft.form);
         Object.assign(recordEntryTagAdjustments, draft.adjustments ?? {});
         recordDraftNotice.value = "已恢复此日期的未保存草稿。";
+      } else if (draft) {
+        recordDraftNotice.value = "旧草稿的账户币种无法核实，未自动恢复；已加载数据库记录。";
       }
     } catch { recordDraftNotice.value = "草稿无法读取，已加载已保存的数据。"; }
     recordLoadedDate.value = recordEntryForm.snapshotDate;
@@ -745,10 +767,11 @@ function nextAccountSortOrder(parent = null) {
 }
 
 function roundToSingleDecimal(value) {
+  if (typeof value === "number" && !Number.isFinite(value)) return NaN;
   return Math.round(numberValue(value) * 10) / 10;
 }
 
-function convertToRmb(amount, currencyCode, rate = hkdToCnyRate.value) {
+function convertToRmb(amount, currencyCode, rate = hkdToCnyRate.value, usdRate = usdToCnyRate.value) {
   if (amount === null || amount === undefined || amount === "") {
     return 0;
   }
@@ -756,6 +779,10 @@ function convertToRmb(amount, currencyCode, rate = hkdToCnyRate.value) {
   const numeric = numberValue(amount);
   if (currencyCode === "HKD") {
     return numeric * Number(rate);
+  }
+
+  if (currencyCode === "USD") {
+    return usdRate != null && Number(usdRate) > 0 ? numeric * Number(usdRate) : NaN;
   }
 
   return numeric;
@@ -785,7 +812,7 @@ function snapshotCategorySignedTotal(snapshot, group) {
     snapshot.details
       .filter((detail) => detail.categoryGroup === group && detail.parentAccountId === null)
       .reduce((sum, detail) => {
-        const amount = convertToRmb(detail.amount, detail.currencyCode, snapshot.hkdToCnyRate);
+        const amount = convertToRmb(detail.amount, detail.currencyCode, snapshot.hkdToCnyRate, snapshot.usdToCnyRate);
         return sum + (detail.balanceDirection === "DEBT" ? amount * -1 : amount);
       }, 0)
   );
@@ -887,7 +914,7 @@ function isRecordEntryParentAccount(account) {
 function recordEntryAggregateAmount(account) {
   const children = recordEntryRollupChildren(account);
   if (children.length === 0) {
-    return roundToSingleDecimal(convertToRmb(recordEntryForm.amounts[accountKey(account)], account.currencyCode, recordExchangeRate.value));
+    return roundToSingleDecimal(convertToRmb(recordEntryForm.amounts[accountKey(account)], account.currencyCode, recordExchangeRate.value, recordUsdExchangeRate.value));
   }
 
   return roundToSingleDecimal(children.reduce((sum, child) => sum + recordEntryResolvedAmount(child), 0));
@@ -923,7 +950,7 @@ function recordEntryResolvedAmount(account) {
   }
 
   if (rawValue !== undefined && rawValue !== null && String(rawValue).trim() !== "") {
-    return roundToSingleDecimal(convertToRmb(rawValue, account.currencyCode, recordExchangeRate.value));
+    return roundToSingleDecimal(convertToRmb(rawValue, account.currencyCode, recordExchangeRate.value, recordUsdExchangeRate.value));
   }
 
   return 0;
@@ -939,7 +966,7 @@ function previousRecordAmount(account) {
   if (!detail) {
     return 0;
   }
-  return roundToSingleDecimal(convertToRmb(detail.amount, detail.currencyCode ?? account.currencyCode, previousRecordSnapshot.value.hkdToCnyRate));
+  return roundToSingleDecimal(convertToRmb(detail.amount, detail.currencyCode ?? account.currencyCode, previousRecordSnapshot.value.hkdToCnyRate, previousRecordSnapshot.value.usdToCnyRate));
 }
 
 function recordEntryDelta(account) {
@@ -1198,6 +1225,7 @@ function buildSnapshotPayload() {
   return {
     snapshotDate: snapshotForm.snapshotDate,
     hkdToCnyRate: isSnapshotCreating.value ? hkdToCnyRate.value : snapshots.value.find(s => s.id === editingId.value)?.hkdToCnyRate,
+    usdToCnyRate: isSnapshotCreating.value ? usdToCnyRate.value : snapshots.value.find(s => s.id === editingId.value)?.usdToCnyRate,
     income: parseNullableNumber(snapshotForm.income),
     fixedExpense: parseNullableNumber(snapshotForm.fixedExpense),
     profitLoss: parseNullableNumber(snapshotForm.profitLoss),
@@ -1268,6 +1296,7 @@ function buildRecordEntryPayload() {
   return {
     snapshotDate: recordEntryForm.snapshotDate,
     hkdToCnyRate: recordExchangeRate.value,
+    usdToCnyRate: details.some(d => d.currencyCode === "USD") ? recordUsdExchangeRate.value : selectedRecordSnapshot.value?.usdToCnyRate ?? null,
     income: null,
     fixedExpense: null,
     profitLoss: null,
@@ -1470,7 +1499,7 @@ function formatAmount(value, currencyCode = "CNY") {
 
   const numeric = Number(value);
   if (Number.isNaN(numeric)) {
-    return String(value);
+    return "请配置汇率";
   }
 
   const locale = currencyCode === "USD" ? "en-US" : "zh-CN";
@@ -1478,7 +1507,7 @@ function formatAmount(value, currencyCode = "CNY") {
     style: "currency",
     currency: currencyCode,
     minimumFractionDigits: 0,
-    maximumFractionDigits: 2
+    maximumFractionDigits: currencyCode === "USD" ? 5 : 2
   }).format(numeric);
 }
 
@@ -1766,7 +1795,7 @@ function formTone(account) {
 
                 <label class="field compact-field">
                   <span>金额</span>
-                  <input v-model="detail.amount" type="number" step="0.01" @wheel.prevent />
+                  <input v-model="detail.amount" type="number" step="any" @wheel.prevent />
                 </label>
               </article>
             </div>
@@ -2104,7 +2133,7 @@ function formTone(account) {
           </div>
 
           <p role="status">{{ recordDraftNotice }} {{ !recordReady ? '正在加载所选日期...' : recordDirty ? '有未保存修改，已尝试保存本地草稿。' : '当前没有未保存修改。' }}</p>
-          <p>本次汇率：1 HKD = {{ recordExchangeRate }} CNY{{ selectedRecordSnapshot ? "（快照当期汇率）" : "（数据库配置）" }}</p>
+          <p>本次汇率：1 HKD = {{ recordExchangeRate }} CNY；1 USD = {{ recordUsdExchangeRate ?? "未配置" }} CNY{{ selectedRecordSnapshot ? "（优先采用快照当期汇率）" : "（数据库配置）" }}</p>
           <p>金额来源：{{ recordBaseSnapshot?.snapshotDate ?? '无历史记录' }}。{{ selectedRecordSnapshot ? '编辑已有记录，保留当时账户。' : '空白账户尚未录入，保存时不计入。' }}</p>
           <button v-if="recordDirty" class="ghost-button" :disabled="saving" @click="discardRecordDraft">放弃草稿</button>
           <div v-if="selectedRecordSnapshot && recordAccountCandidates.length" class="button-row">
@@ -2235,7 +2264,7 @@ function formTone(account) {
                         class="record-amount-input"
                         type="number"
                         @wheel.prevent
-                        step="0.01"
+                        step="any"
                         placeholder="0.00"
                         @input="handleRecordEntryPrimaryAmountInput(root, $event.target.value)"
                       />
@@ -2279,7 +2308,7 @@ function formTone(account) {
                           class="record-amount-input"
                           type="number"
                           @wheel.prevent
-                          step="0.01"
+                          step="any"
                           placeholder="0.00"
                         />
                         <span class="record-delta" :class="recordEntryDeltaTone(child)">{{ recordEntryDeltaLabel(child) }}</span>

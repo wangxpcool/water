@@ -64,6 +64,7 @@ defineProps({
         <option value="USD">USD</option>
         <option value="HKD">HKD</option>
       </select>
+      <small>默认币种用于新记录；旧台账保留原币种和金额，不会自动换算。</small>
     </label>
     <label class="field">
       <span>排序</span>
